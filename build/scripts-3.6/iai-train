@@ -105,7 +105,7 @@ def main():
 
 
     ## Plot results of predictions on test set
-    plotResults(resultsFile=test_resultFile,saveas=test_resultFig)
+    plotResultsSigmoid(resultsFile=test_resultFile,saveas=test_resultFig)
 
 
     print("\n***FINISHED!***\n")

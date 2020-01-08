@@ -641,6 +641,58 @@ def plotResults(resultsFile,saveas):
 
 #-------------------------------------------------------------------------------------------
 
+def plotResultsSigmoid(resultsFile,saveas):
+
+    plt.rc('font', family='serif', serif='Times')
+    plt.rc('xtick', labelsize=6)
+    plt.rc('ytick', labelsize=6)
+    plt.rc('axes', labelsize=6)
+
+    results = pickle.load(open( resultsFile , "rb" ))
+
+    fig,axes = plt.subplots(2,1)
+    plt.subplots_adjust(hspace=0.5)
+
+    predictions = np.array([float(Y) for Y in results["predictions"]])
+    realValues = np.array([float(X) for X in results["Y_test"]])
+
+    const, expan = [], []
+    for i, val in enumerate(realValues):
+        if val == 0:
+            const.append(predictions[i])
+        else:
+            expan.append(predictions[i])
+    np.array(const)
+    np.array(expan)
+
+    mae_0 = round(mae(realValues,predictions),4)
+    mse_0 = round(mse(realValues,predictions),4)
+    labels = "$mae = $" + str(mae_0)+" | "+"$mse = $" + str(mse_0)
+
+    n_bins = np.linspace(0.0,1.0,100)
+    axes[0].hist(const, n_bins, color="orange", label="Constant size", alpha=0.5)
+    axes[0].hist(expan, n_bins, color="blue", label="Exponential growth", alpha=0.5)
+    axes[0].axvline(x=0.5, linestyle="--", linewidth=0.3, color="black")
+    axes[0].legend(prop={'size': 4})
+
+    lossRowIndex = 1
+    axes[1].plot(results["loss"],label = "mae loss",color="orange")
+    axes[1].plot(results["val_loss"], label= "mae validation loss",color="blue")
+
+    axes[1].legend(frameon = False,fontsize = 6)
+    axes[1].set_ylabel("mse")
+
+    axes[0].set_ylabel("N")
+    axes[0].set_xlabel("sigmoid output")
+    fig.subplots_adjust(left=.15, bottom=.16, right=.85, top=.92,hspace = 0.5,wspace=0.4)
+    height = 4.00
+    width = 4.00
+
+    fig.set_size_inches(height, width)
+    fig.savefig(saveas)
+
+#-------------------------------------------------------------------------------------------
+
 def getMeanSDMax(trainDir):
     '''
     get the mean and standard deviation of rho from training set
