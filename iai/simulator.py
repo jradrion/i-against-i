@@ -42,7 +42,8 @@ class Simulator(object):
         phased = None,
         phaseError = None,
         hotspots = False,
-        nHotWins = 10
+        nHotWins = 10,
+        seed = None
         ):
 
         self.N = N
@@ -70,6 +71,7 @@ class Simulator(object):
         self.phaseError = phaseError
         self.hotspots = hotspots
         self.nHotWins = nHotWins
+        self.seed = seed
 
 
     def runOneMsprimeSim(self,simNum,direc):
@@ -143,6 +145,7 @@ class Simulator(object):
                     growth_rate=GR)]
 
                 ts = msp.simulate(
+                    random_seed = self.seed,
                     length=self.ChromosomeLength,
                     mutation_rate=MR,
                     recombination_rate=RR,
@@ -150,6 +153,7 @@ class Simulator(object):
                 )
             else:
                 ts = msp.simulate(
+                    random_seed = self.seed,
                     sample_size = self.N,
                     Ne = self.Ne_noGrowth,
                     length=self.ChromosomeLength,

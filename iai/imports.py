@@ -34,3 +34,4 @@ from keras.callbacks import EarlyStopping,ModelCheckpoint
 from keras.utils.layer_utils import convert_all_kernels_in_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras import regularizers
+from tensorflow import set_random_seed

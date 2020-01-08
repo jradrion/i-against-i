@@ -27,6 +27,7 @@ def main():
     parser.add_argument('--sam',dest='sam',help='sample size',type=int,default=10)
     #parser.add_argument('-l','--assumedGenTime',dest='genTime',help='Assumed generation time (in years)',type=float)
     #parser.add_argument('-r','--upperRhoThetaRatio',dest='upRTR',help='Assumed upper bound for the ratio of rho to theta',type=float,default=1.0)
+    parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
     parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
     parser.add_argument('--phased',help='Treat genotypes as phased',default=False, action='store_true')
     parser.add_argument('--unphased',dest='phased',help='Treat genotypes as unphased',action='store_false')
@@ -72,7 +73,12 @@ def main():
     #else:
     #    time.sleep(5)
     
-    
+    ## Set seed
+    if args.seed:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        set_random_seed(args.seed)
+ 
     ## Set up the directory structure to store the simulations data.
     nProc = args.nCPU
     trialDir = os.path.join(projectDir,"trial")
@@ -112,7 +118,8 @@ def main():
         'winMasks':None,
         'maskThresh':None,
         'phased':args.phased,
-        'fractionGrowth': 1
+        'fractionGrowth': 1,
+        'seed':args.seed
               }
 
     # Assign pars for each simulation
@@ -150,7 +157,8 @@ def main():
         'winMasks':None,
         'maskThresh':None,
         'phased':args.phased,
-        'fractionGrowth': args.fGrowth
+        'fractionGrowth': args.fGrowth,
+        'seed':args.seed
               }
     
     # Assign pars for each simulation
@@ -192,6 +200,47 @@ def main():
     print("numSegSites\t\t\tMin\tMean\tMax")
     print("Simulated:\t\t\t%s\t%s\t%s" %(minSegSites, int(sum(SS)/float(len(SS))), maxSegSites))
     print("\n\n***FINISHED***\n")
+    
+
+    ## Plot the SFS of the test set
+    outfile = os.path.join(networkDir, "testSet_sfs.pdf") 
+    sfs_const, sfs_expan = [], []
+    pi_const, pi_expan = [], []
+    info = pickle.load(open(os.path.join(testDir,"info.p"),"rb"))
+    gr = info["gr"]
+    for i, rate in enumerate(gr):
+        Hfilepath = os.path.join(testDir,str(i) + "_haps.npy")
+        Pfilepath = os.path.join(testDir,str(i) + "_pos.npy")
+        H = np.load(Hfilepath)
+        P = np.load(Pfilepath)
+        ac = allel.HaplotypeArray(H).count_alleles()
+        pi = allel.sequence_diversity(P,ac)
+        rawSFS = allel.sfs(ac[:, 1], n=H.shape[1])[1:]
+        relSFS = np.divide(rawSFS,sum(rawSFS))
+        if rate > 0.0:
+            sfs_expan.append(relSFS)
+            pi_expan.append(pi)
+        else:
+            sfs_const.append(relSFS)
+            pi_const.append(pi)
+    sfs_const_avg = np.mean(np.array(sfs_const),axis=0)
+    sfs_expan_avg = np.mean(np.array(sfs_expan),axis=0)
+    s = [sfs_const_avg, sfs_expan_avg]
+    bins = [n + 1 for n in range(len(s[0]))]
+    vals = []
+    for i in range(len(s)):
+        vals.append([x for x in s[i]])
+    f, ax = plt.subplots(1, 2, sharey=True, tight_layout=True, figsize=(8, 3))
+    ax[0].bar(bins, vals[0])
+    ax[1].bar(bins, vals[1])
+    ax[0].set_title("Constant size (pi = %s)" %(round(np.mean(pi_const),5)))
+    ax[1].set_title("Exponential growth (pi = %s)" %(round(np.mean(pi_expan),5)))
+    ax[0].set_ylabel("Counts (percent)")
+    ax[0].set_xlabel("Derived allele frequency")
+    ax[1].set_xlabel("Derived allele frequency")
+    f.savefig(outfile, bbox_inches='tight')
+    plt.close()
+
 
 
 if __name__ == "__main__":

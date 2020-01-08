@@ -1,8 +1,8 @@
 #!/home/jadrion/miniconda3/envs/relernn/bin/python
 
-from i-against-i.imports import *
-from i-against-i.helpers import *
-from i-against-i.sequenceBatchGenerator import *
+from iai.imports import *
+from iai.helpers import *
+from iai.sequenceBatchGenerator import *
 
 
 def main():

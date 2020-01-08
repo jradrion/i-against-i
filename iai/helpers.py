@@ -1,4 +1,3 @@
-
 from iai.imports import *
 
 #-------------------------------------------------------------------------------------------
@@ -308,6 +307,7 @@ def runModels(ModelFuncPointer,
             numEpochs=10,
             epochSteps=100,
             validationSteps=1,
+            init=None,
             network=None,
             nCPU = 1,
             gpuID = 0):
@@ -321,6 +321,9 @@ def runModels(ModelFuncPointer,
 
     x,y = TrainGenerator.__getitem__(0)
     model = ModelFuncPointer(x,y)
+
+    if(init != None):
+        model.load_weights(init)
 
     # Early stopping and saving the best weights
     callbacks_list = [
