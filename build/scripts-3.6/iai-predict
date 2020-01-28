@@ -1,133 +1,137 @@
 #!/home/jadrion/miniconda3/envs/relernn/bin/python
-
 from iai.imports import *
 from iai.helpers import *
 from iai.sequenceBatchGenerator import *
+from iai.networks import *
 
 
 def main():
+    """
+    Copies the networks from Dir_A to Dir_B and predicts on the
+    test set in Dir_B.
+    """
     parser = argparse.ArgumentParser()
-    parser.add_argument('-v','--vcf',dest='vcf',help='Filtered and QC-checked VCF file. Important: Every row must correspond to a biallelic SNP with no missing data!')
-    parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
-    parser.add_argument('--phased',help='VCF file is phased',default=False, action='store_true')
-    parser.add_argument('--unphased',dest='phased',help='VCF file is unphased',action='store_false')
-    parser.add_argument('--minSites',dest='minS',help='Minimum number of SNPs in a genomic window required to return a prediction', type=int, default = 50)
-    parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default = 0)
+    parser.add_argument('-d_a','--projectDir_A',dest='outDir_A',help='Directory for all project output for parameter set A. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('-d_b','--projectDir_B',dest='outDir_B',help='Directory for all project output for parameter set B. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('-w','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
+    parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
+    parser.add_argument('--nValSteps',dest='nValSteps',help='Number of validation steps', type=int, default=20)
+    parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
+    parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
+    parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
     args = parser.parse_args()
+ 
+
+    ## Set seed
+    if args.seed:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        set_random_seed(args.seed)
     
+    ### Shuffle files around
+    ## rename Dir_B sfs.pdf
+    cmd = "mv %s %s" %(os.path.join(args.outDir_B,"networks","testSet_sfs.pdf"), os.path.join(args.outDir_B,"networks","testSet_B_sfs.pdf"))
+    os.system(cmd)
+    ## Copy contents of networks directory from Dir_A to Dir_B
+    print("Copying contents of Dir_A/networks to Dir_B/networks")
+    cmd = "cp -r %s %s" %(os.path.join(args.outDir_A,"networks"), args.outDir_B)
+    os.system(cmd)
+    ## remove the copied images file
+    cmd = "rm -rf %s" %(os.path.join(args.outDir_B,"networks","images"))
+    os.system(cmd)
+    cmd = "mv %s %s" %(os.path.join(args.outDir_B,"networks","testSet_sfs.pdf"), os.path.join(args.outDir_B,"networks","testSet_A_sfs.pdf"))
+    os.system(cmd)
+
 
     ## Set up the directory structure to store the simulations data.
-    if not args.outDir:
+    
+    if not args.outDir_B:
         print("Warning: No project directory found, using current working directory.")
         projectDir = os.getcwd()
     else:
-        projectDir = args.outDir
+        projectDir = args.outDir_B
     trainDir = os.path.join(projectDir,"train")
     valiDir = os.path.join(projectDir,"vali")
     testDir = os.path.join(projectDir,"test")
     networkDir = os.path.join(projectDir,"networks")
-    vcfDir = os.path.join(projectDir,"splitVCFs")
+
+
+    ## Define output files
+    test_resultFile = os.path.join(networkDir,"testResults.p")
+    test_resultFig = os.path.join(networkDir,"testResults.pdf")
     modelSave = os.path.join(networkDir,"model.json")
     weightsSave = os.path.join(networkDir,"weights.h5")
 
 
-    ## Read in the window sizes
-    maxSimS = 0
-    wins=[]
-    winFILE=os.path.join(networkDir,"windowSizes.txt")
-    with open(winFILE, "r") as fIN:
-        for line in fIN:
-            ar=line.split()
-            wins.append([ar[0],int(ar[1]),int(ar[2]),int(ar[3]),int(ar[4]),int(ar[5])])
-            maxSimS=max([maxSimS, int(ar[5])])
+    ## Identify padding required
+    maxSegSites = 1000
 
 
-    ## Loop through chromosomes and predict
-    pred_resultFiles = []
-    for i in range(len(wins)):
-        ## Read in the hdf5
-        bn=os.path.basename(args.vcf)
-        h5FILE=os.path.join(vcfDir,bn.replace(".vcf","_%s.hdf5" %(wins[i][0])))
-        print("""Importing HDF5: "%s"...""" %(h5FILE))
-        callset=h5py.File(h5FILE, mode="r")
-        var=allel.VariantChunkedTable(callset["variants"],names=["CHROM","POS"], index="POS")
-        chroms=var["CHROM"]
-        pos=var["POS"]
-        genos=allel.GenotypeChunkedArray(callset["calldata"]["GT"])
+    ## Set network parameters
+    bds_train_params = {
+        'treesDirectory':trainDir,
+        'targetNormalization':"zscore",
+        'batchSize': 64,
+        'maxLen': maxSegSites,
+        'frameWidth': 0,
+        'shuffleInds':True,
+        'sortInds':False,
+        'center':False,
+        'ancVal':0,
+        'padVal':0,
+        'derVal':1,
+        'realLinePos':True,
+        'posPadVal':0,
+        'seqD':None
+              }
 
 
-        ## Identify padding required
-        maxSegSites = 0
-        for ds in [trainDir,valiDir,testDir]:
-            DsInfoDir = pickle.load(open(os.path.join(ds,"info.p"),"rb"))
-            segSitesInDs = max(DsInfoDir["segSites"])
-            maxSegSites = max(maxSegSites,segSitesInDs)
-        maxSegSites = max(maxSegSites, maxSimS)
+    ## Dump batch pars for bootstrap
+    batchParsFILE=os.path.join(networkDir,"batchPars.p")
+    with open(batchParsFILE, "wb") as fOUT:
+        pickle.dump(bds_train_params,fOUT)
 
 
-        ## Identify parameters used to train
-        DsInfoDir = pickle.load(open(os.path.join(trainDir,"info.p"),"rb"))
-        winSize=wins[i][2]
-        batchSize=wins[i][4]
+    bds_vali_params = copy.deepcopy(bds_train_params)
+    bds_vali_params['treesDirectory'] = valiDir
+    bds_vali_params['batchSize'] = 64
+
+    bds_test_params = copy.deepcopy(bds_train_params)
+    bds_test_params['treesDirectory'] = testDir
+    test_info = pickle.load(open(os.path.join(testDir,"info.p"),"rb"))
+    bds_test_params['batchSize'] = test_info["numReps"]
+    bds_test_params['shuffleExamples'] = False
 
 
-        ## Set network parameters
-        bds_pred_params = {
-            'INFO':DsInfoDir,
-            'CHROM':chroms[0],
-            'WIN':winSize,
-            'IDs':get_index(pos,winSize),
-            'GT':genos,
-            'POS':pos,
-            'batchSize': batchSize,
-            'maxLen': maxSegSites,
-            'frameWidth': 5,
-            'sortInds':False,
-            'center':False,
-            'ancVal':-1,
-            'padVal':0,
-            'derVal':1,
-            'realLinePos':True,
-            'posPadVal':0,
-            'phase':args.phased
-                  }
+    ## Define sequence batch generator
+    train_sequence = SequenceBatchGenerator(**bds_train_params)
+    vali_sequence = SequenceBatchGenerator(**bds_vali_params)
+    test_sequence = SequenceBatchGenerator(**bds_test_params)
+
+    
+    ## Train network
+    runModelsMisspecified(ModelFuncPointer=iaiCNN_adv,
+            ModelName="iaiCNN_adv",
+            NetworkDir=networkDir,
+            TrainGenerator=train_sequence,
+            ValidationGenerator=vali_sequence,
+            TestGenerator=test_sequence,
+            test_info=test_info,
+            resultsFile=test_resultFile,
+            init=args.weights,
+            network=[modelSave,weightsSave],
+            numEpochs=args.nEpochs,
+            validationSteps=args.nValSteps,
+            nCPU=args.nCPU,
+            gpuID=args.gpuID,
+            learningRate=0.001)
 
 
-        ### Define sequence batch generator
-        pred_sequence = VCFBatchGenerator(**bds_pred_params)
-
-
-        ## Load trained model and make predictions on VCF data
-        pred_resultFile = os.path.join(projectDir,wins[i][0]+".CHPREDICT.txt")
-        pred_resultFiles.append(pred_resultFile)
-        load_and_predictVCF(VCFGenerator=pred_sequence,
-                resultsFile=pred_resultFile,
-                network=[modelSave,weightsSave],
-                minS=args.minS,
-                gpuID=args.gpuID)
-
-
-    ## Combine chromosome predictions in whole genome prediction file and rm chromosome files
-    genPredFILE=os.path.join(projectDir,bn.replace(".vcf",".PREDICT.txt"))
-    ct=0
-    with open(genPredFILE, "w") as fOUT:
-        for f in pred_resultFiles:
-            if ct==0:
-                with open(f, "r") as fIN:
-                    for line in fIN:
-                        fOUT.write(line)
-            else:
-                with open(f, "r") as fIN:
-                    fIN.readline()
-                    for line in fIN:
-                        fOUT.write(line)
-            ct+=1
-            cmd="rm %s" %(f)
-            os.system(cmd)
+    ## Plot results of predictions on test set
+    plotResultsSoftmax2HeatmapMis(resultsFile=test_resultFile, resultsFile2=test_resultFile.replace(".p","_2.p"), saveas=test_resultFig.replace(".pdf","_compared.pdf"))
 
 
     print("\n***FINISHED!***\n")
-
 
 if __name__ == "__main__":
 	main()

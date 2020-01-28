@@ -11,6 +11,7 @@ iai/helpers.py
 iai/iai-predict
 iai/iai-simulate
 iai/iai-train
+iai/iai-train_adv
 iai/imports.py
 iai/manager.py
 iai/networks.py

@@ -135,10 +135,6 @@ class Simulator(object):
 
         else:
             if GR != 0.0:
-                #PC = [msp.PopulationConfiguration(
-                #    sample_size=self.N,
-                #    initial_size=self.Ne_growth,
-                #    growth_rate=GR)]
                 PC = [msp.PopulationConfiguration(
                     sample_size=self.N,
                     initial_size=NE,
@@ -160,26 +156,6 @@ class Simulator(object):
                     mutation_rate=MR,
                     recombination_rate=RR
                 )
-            #if self.MspDemographics:
-            #    DE = self.MspDemographics["demographic_events"]
-            #    PC = self.MspDemographics["population_configurations"]
-            #    MM = self.MspDemographics["migration_matrix"]
-            #    ts = msp.simulate(
-            #        length=self.ChromosomeLength,
-            #        mutation_rate=MR,
-            #        recombination_rate=RR,
-            #        population_configurations = PC,
-            #        migration_matrix = MM,
-            #        demographic_events = DE
-            #    )
-            #else:
-            #    ts = msp.simulate(
-            #        sample_size = self.N,
-            #        Ne = self.Ne,
-            #        length=self.ChromosomeLength,
-            #        mutation_rate=MR,
-            #        recombination_rate=RR
-            #    )
 
         # Convert tree sequence to genotype matrix, and position matrix
         H = ts.genotype_matrix()
@@ -316,7 +292,8 @@ class Simulator(object):
             else:
                 gr.append(self.segSites[i])
 
-        print("mean segSites with growth:", sum(gr)/float(len(gr)))
+        if gr:
+            print("mean segSites with growth:", sum(gr)/float(len(gr)))
         if no_gr:
            print("mean segSites no growth:", sum(no_gr)/float(len(no_gr)))
 

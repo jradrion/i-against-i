@@ -383,6 +383,401 @@ def runModels(ModelFuncPointer,
 
 #-------------------------------------------------------------------------------------------
 
+def runModelsAdv(ModelFuncPointer,
+            ModelName,
+            NetworkDir,
+            TrainGenerator,
+            ValidationGenerator,
+            TestGenerator,
+            resultsFile=None,
+            numEpochs=10,
+            epochSteps=100,
+            validationSteps=1,
+            init=None,
+            network=None,
+            nCPU = 1,
+            gpuID = 0,
+            learningRate=0.001
+            ):
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpuID)
+
+    # Force TensorFlow to use single thread to improve reproducibility
+    config = tf.ConfigProto(intra_op_parallelism_threads=1,
+                          inter_op_parallelism_threads=1)
+
+    sess = tf.Session(config=config)
+    keras.backend.set_session(sess)
+
+    if(resultsFile == None):
+        resultsFilename = os.path.basename(trainFile)[:-4] + ".p"
+        resultsFile = os.path.join("./results/",resultsFilename)
+
+    # Read all test data into memory
+    x_train, y_train = TrainGenerator.__getitem__(0)
+    x_test, y_test = TestGenerator.__getitem__(0)
+
+    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
+    nb_classes = y_test.shape[1]
+
+    ## Label smoothing (Not really sure why we'd want to do this [changes 0.0,1.0 to 0.05,0.95))
+    #label_smoothing = 0.1
+    #y_train -= label_smoothing * (y_train - 1. / nb_classes)
+
+    # Define Keras model
+    model = ModelFuncPointer(img_rows=img_rows, img_cols=img_cols,
+                    channels=None, nb_filters=None,
+                    nb_classes=nb_classes)
+    print("Defined Keras model.")
+
+    # To be able to call the model in the custom loss, we need to call it once
+    model(model.input)
+
+    # Load weights if given
+    if(init != None):
+        model.load_weights(init)
+
+    # Initialize the Fast Gradient Sign Method (FGSM) attack object
+    wrap = KerasModelWrapper(model)
+    fgsm = FastGradientMethod(wrap, sess=sess)
+    fgsm_params = {'eps': 1.,
+                 'clip_min': 0.,
+                 'clip_max': 1.}
+
+    adv_acc_metric = get_adversarial_acc_metric(model, fgsm, fgsm_params)
+    model.compile(
+      optimizer=keras.optimizers.Adam(learningRate),
+      loss='categorical_crossentropy',
+      metrics=['accuracy', adv_acc_metric]
+    )
+
+    # Early stopping and saving the best weights
+    callbacks_list = [
+            keras.callbacks.EarlyStopping(
+                verbose=1,
+                min_delta=0.01,
+                patience=50),
+            keras.callbacks.ModelCheckpoint(
+                filepath=network[1],
+                save_best_only=True)
+            ]
+
+    history = model.fit_generator(TrainGenerator,
+        steps_per_epoch= epochSteps,
+        epochs=numEpochs,
+        validation_data=ValidationGenerator,
+        validation_steps=validationSteps,
+        use_multiprocessing=True,
+        callbacks=callbacks_list,
+        max_queue_size=nCPU,
+        workers=nCPU,
+        )
+
+
+    # Save genotype images for testset
+    print("\nGenerating adversarial examples and writing images/predicions...")
+    imageDir = os.path.join(NetworkDir,"images")
+    if not os.path.exists(imageDir):
+        os.makedirs(imageDir)
+    for i in range(x_test.shape[0]):
+        org_predFILE = os.path.join(imageDir,"examp{}_org_pred.txt".format(i))
+        adv_predFILE = os.path.join(imageDir,"examp{}_adv_pred.txt".format(i))
+        org_imageFILE = os.path.join(imageDir,"examp{}_org.png".format(i))
+        adv_imageFILE = os.path.join(imageDir,"examp{}_adv.png".format(i))
+        delta_imageFILE = os.path.join(imageDir,"examp{}_delta.png".format(i))
+        adv_example = fgsm.generate_np(x_test[i].reshape((1, x_test.shape[1], x_test.shape[2])), **fgsm_params)
+        pred_org = model.predict(x_test[i].reshape(1, x_test.shape[1], x_test.shape[2]))
+        pred_adv = model.predict(adv_example)
+        np.savetxt(org_predFILE, pred_org)
+        np.savetxt(adv_predFILE, pred_adv)
+        org_image = x_test[i].reshape((img_rows, img_cols))
+        adv_image = adv_example.reshape((img_rows, img_cols))
+        delta_image = org_image - adv_image
+        plt.imsave(org_imageFILE, org_image)
+        plt.imsave(adv_imageFILE, adv_image)
+        plt.imsave(delta_imageFILE, delta_image)
+        progress_bar(i/float(x_test.shape[0]))
+
+    # Evaluate the accuracy on legitimate and adversarial test examples
+    report = AccuracyReport()
+    _, acc, adv_acc = model.evaluate(x_test, y_test,
+                                   batch_size=64,
+                                   verbose=0)
+    report.clean_train_clean_eval = acc
+    report.clean_train_adv_eval = adv_acc
+    print('\nTest accuracy on legitimate examples: %0.4f' % acc)
+    print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
+
+    # Write the network
+    if(network != None):
+        ##serialize model to JSON
+        model_json = model.to_json()
+        with open(network[0], "w") as json_file:
+            json_file.write(model_json)
+
+    # Load json and create model
+    if(network != None):
+        jsonFILE = open(network[0],"r")
+        loadedModel = jsonFILE.read()
+        jsonFILE.close()
+        model=model_from_json(loadedModel)
+        model.load_weights(network[1])
+    else:
+        print("Error: model and weights not loaded")
+        sys.exit(1)
+
+    predictions = model.predict(x_test)
+
+    history.history['loss'] = np.array(history.history['loss'])
+    history.history['val_loss'] = np.array(history.history['val_loss'])
+    history.history['predictions'] = np.array(predictions)
+    history.history['Y_test'] = np.array(y_test)
+    history.history['name'] = ModelName
+
+    print("results written to: ",resultsFile)
+    pickle.dump(history.history, open( resultsFile, "wb" ))
+
+
+
+    ########## Adversarial training #############
+    print("Repeating the process, using adversarial training")
+    # Redefine Keras model
+    model_2 = ModelFuncPointer(img_rows=img_rows, img_cols=img_cols,
+                    channels=None, nb_filters=None,
+                    nb_classes=nb_classes)
+    model_2(model_2.input)
+    wrap_2 = KerasModelWrapper(model_2)
+    fgsm_2 = FastGradientMethod(wrap_2, sess=sess)
+
+
+    # Use a loss function based on legitimate and adversarial examples
+    adv_loss_2 = get_adversarial_loss(model_2, fgsm_2, fgsm_params)
+    adv_acc_metric_2 = get_adversarial_acc_metric(model_2, fgsm_2, fgsm_params)
+
+    model_2.compile(
+      optimizer=keras.optimizers.Adam(learningRate),
+      loss=adv_loss_2,
+      metrics=['accuracy', adv_acc_metric_2]
+    )
+
+    # Early stopping and saving the best weights
+    callbacks_list_2 = [
+            keras.callbacks.EarlyStopping(
+                verbose=1,
+                min_delta=0.01,
+                patience=50),
+            keras.callbacks.ModelCheckpoint(
+                filepath=network[1].replace(".h5","_2.h5"),
+                save_best_only=True)
+            ]
+
+    # Train model
+    history_2 = model_2.fit_generator(TrainGenerator,
+        steps_per_epoch= epochSteps,
+        epochs=numEpochs,
+        validation_data=ValidationGenerator,
+        validation_steps=validationSteps,
+        use_multiprocessing=True,
+        callbacks=callbacks_list_2,
+        max_queue_size=nCPU,
+        workers=nCPU,
+        )
+
+    # Evaluate the accuracy on legitimate and adversarial test examples
+    _, acc, adv_acc = model_2.evaluate(x_test, y_test,
+                                     batch_size=64,
+                                     verbose=0)
+
+    report.adv_train_clean_eval = acc
+    report.adv_train_adv_eval = adv_acc
+    print('Test accuracy on legitimate examples: %0.4f' % acc)
+    print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
+
+
+    # Write the network
+    if(network != None):
+        ##serialize model_2 to JSON
+        model_json_2 = model_2.to_json()
+        with open(network[0].replace(".json","_2.json"), "w") as json_file:
+            json_file.write(model_json_2)
+
+    # Load json and create model
+    if(network != None):
+        jsonFILE = open(network[0].replace(".json","_2.json"),"r")
+        loadedModel_2 = jsonFILE.read()
+        jsonFILE.close()
+        model_2=model_from_json(loadedModel_2)
+        model_2.load_weights(network[1].replace(".h5","_2.h5"))
+    else:
+        print("Error: model_2 and weights_2 not loaded")
+        sys.exit(1)
+
+    predictions_2 = model_2.predict(x_test)
+
+    history_2.history['loss'] = np.array(history_2.history['loss'])
+    history_2.history['val_loss'] = np.array(history_2.history['val_loss'])
+    history_2.history['predictions'] = np.array(predictions_2)
+    history_2.history['Y_test'] = np.array(y_test)
+    history_2.history['name'] = ModelName+"_adversarialTrained"
+
+    print("results written to: ",resultsFile.replace(".p","_2.p"))
+    pickle.dump(history_2.history, open( resultsFile.replace(".p","_2.p"), "wb" ))
+
+    reportFile = os.path.join(NetworkDir, "testReport.p")
+    print("report written to: ",reportFile)
+    pickle.dump(report, open( reportFile, "wb" ))
+
+    return None
+
+#-------------------------------------------------------------------------------------------
+
+def runModelsMisspecified(ModelFuncPointer,
+            ModelName,
+            NetworkDir,
+            TrainGenerator,
+            ValidationGenerator,
+            TestGenerator,
+            test_info=None,
+            resultsFile=None,
+            numEpochs=10,
+            epochSteps=100,
+            validationSteps=1,
+            init=None,
+            network=None,
+            nCPU = 1,
+            gpuID = 0,
+            learningRate=0.001
+            ):
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpuID)
+
+    # Force TensorFlow to use single thread to improve reproducibility
+    config = tf.ConfigProto(intra_op_parallelism_threads=1,
+                          inter_op_parallelism_threads=1)
+
+    sess = tf.Session(config=config)
+    keras.backend.set_session(sess)
+
+    if(resultsFile == None):
+        resultsFilename = os.path.basename(trainFile)[:-4] + ".p"
+        resultsFile = os.path.join("./results/",resultsFilename)
+
+    # Read all test data into memory
+    x_test, y_test = TestGenerator.__getitem__(0)
+
+    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
+    nb_classes = y_test.shape[1]
+
+    # Load json and create model
+    if(network != None):
+        jsonFILE = open(network[0],"r")
+        loadedModel = jsonFILE.read()
+        jsonFILE.close()
+        model=model_from_json(loadedModel)
+        model.load_weights(network[1])
+    else:
+        print("Error: model and weights not loaded")
+        sys.exit(1)
+
+    predictions = model.predict(x_test)
+
+    #replace predictions and Y_test in results file
+    history= pickle.load(open(resultsFile, "rb"))
+    tmp = []
+    for gr in test_info["gr"]:
+        if gr > 0.0:
+            tmp.append([0.0,1.0])
+        else:
+            tmp.append([1.0,0.0])
+    history["Y_test"] = np.array(tmp)
+    history['predictions'] = np.array(predictions)
+
+    #rewrite result file
+    print("new results written to: ",resultsFile)
+    pickle.dump(history, open(resultsFile, "wb"))
+
+
+    ########### Adversarial training #############
+    # Load json and create model
+    if(network != None):
+        jsonFILE = open(network[0].replace(".json","_2.json"),"r")
+        loadedModel_2 = jsonFILE.read()
+        jsonFILE.close()
+        model_2=model_from_json(loadedModel_2)
+        model_2.load_weights(network[1].replace(".h5","_2.h5"))
+    else:
+        print("Error: model_2 and weights_2 not loaded")
+        sys.exit(1)
+
+    predictions_2 = model_2.predict(x_test)
+
+    #replace predictions and T_test in results file 2
+    history_2 = pickle.load(open(resultsFile.replace(".p","_2.p"), "rb"))
+    tmp = []
+    for gr in test_info["gr"]:
+        if gr > 0.0:
+            tmp.append([0.0,1.0])
+        else:
+            tmp.append([1.0,0.0])
+    history_2["Y_test"] = np.array(tmp)
+    history_2['predictions'] = np.array(predictions_2)
+
+    # rewrite new results file
+    print("new results written to: ",resultsFile.replace(".p","_2.p"))
+    pickle.dump(history_2, open(resultsFile.replace(".p","_2.p"), "wb"))
+
+    return None
+
+#-------------------------------------------------------------------------------------------
+
+def progress_bar(percent, barLen = 50):
+    sys.stdout.write("\r")
+    progress = ""
+    for i in range(barLen):
+        if i < int(barLen * percent):
+            progress += "="
+        else:
+            progress += " "
+    sys.stdout.write("[ %s ] %.2f%%" % (progress, percent * 100))
+    sys.stdout.flush()
+
+#-------------------------------------------------------------------------------------------
+
+def get_adversarial_acc_metric(model, fgsm, fgsm_params):
+  def adv_acc(y, _):
+    # Generate adversarial examples
+    x_adv = fgsm.generate(model.input, **fgsm_params)
+    # Consider the attack to be constant
+    x_adv = tf.stop_gradient(x_adv)
+
+    # Accuracy on the adversarial examples
+    preds_adv = model(x_adv)
+    return keras.metrics.categorical_accuracy(y, preds_adv)
+
+  return adv_acc
+
+#-------------------------------------------------------------------------------------------
+
+def get_adversarial_loss(model, fgsm, fgsm_params):
+  def adv_loss(y, preds):
+    # Cross-entropy on the legitimate examples
+    cross_ent = keras.losses.categorical_crossentropy(y, preds)
+
+    # Generate adversarial examples
+    x_adv = fgsm.generate(model.input, **fgsm_params)
+    # Consider the attack to be constant
+    x_adv = tf.stop_gradient(x_adv)
+
+    # Cross-entropy on the adversarial examples
+    preds_adv = model(x_adv)
+    cross_ent_adv = keras.losses.categorical_crossentropy(y, preds_adv)
+
+    return 0.5 * cross_ent + 0.5 * cross_ent_adv
+
+  return adv_loss
+
+#-------------------------------------------------------------------------------------------
+
 def indicesGenerator(batchSize,numReps):
     '''
     Generate indices randomly from range (0,numReps) in batches of size batchSize
@@ -685,6 +1080,294 @@ def plotResultsSigmoid(resultsFile,saveas):
     axes[0].set_ylabel("N")
     axes[0].set_xlabel("sigmoid output")
     fig.subplots_adjust(left=.15, bottom=.16, right=.85, top=.92,hspace = 0.5,wspace=0.4)
+    height = 4.00
+    width = 4.00
+
+    fig.set_size_inches(height, width)
+    fig.savefig(saveas)
+
+#-------------------------------------------------------------------------------------------
+
+def cross_entropy(predictions, targets, epsilon=1e-12):
+    predictions = np.clip(predictions, epsilon, 1. - epsilon)
+    N = predictions.shape[0]
+    ce = -np.sum(targets*np.log(predictions+1e-9))/N
+    return ce
+
+#-------------------------------------------------------------------------------------------
+
+def plotResultsSoftmax2(resultsFile,saveas):
+
+    plt.rc('font', family='serif', serif='Times')
+    plt.rc('xtick', labelsize=6)
+    plt.rc('ytick', labelsize=6)
+    plt.rc('axes', labelsize=6)
+
+    results = pickle.load(open( resultsFile , "rb" ))
+
+    fig,axes = plt.subplots(2,1)
+    plt.subplots_adjust(hspace=0.5)
+
+    predictions = results["predictions"]
+    realValues = results["Y_test"]
+
+    const, expan = [], []
+    for i, val in enumerate(realValues):
+        if val[0] == 1.0:
+            const.append(1.0 - predictions[i][0])
+        else:
+            expan.append(predictions[i][1])
+    np.array(const)
+    np.array(expan)
+
+    ce = round(cross_entropy(predictions,realValues),4)
+    labels = "Cross entropy = " + str(ce)
+
+    n_bins = np.linspace(0.0,1.0,100)
+    axes[0].hist(const, n_bins, color="orange", label="Constant size", alpha=0.5)
+    axes[0].hist(expan, n_bins, color="blue", label="Exponential growth", alpha=0.5)
+    axes[0].axvline(x=0.5, linestyle="--", linewidth=0.4, color="black")
+    axes[0].legend(prop={'size': 4})
+    axes[0].set_title(results["name"]+"\n"+labels,fontsize=6)
+
+    lossRowIndex = 1
+    axes[1].plot(results["loss"],label = "CE loss",color="orange")
+    axes[1].plot(results["val_loss"], label= "CE validation loss",color="blue")
+
+    axes[1].legend(frameon = False,fontsize = 6)
+    axes[1].set_ylabel("Cross entropy")
+
+    axes[0].set_ylabel("N")
+    axes[0].set_xlabel("Predicted probability of exponential growth")
+    fig.subplots_adjust(left=.15, bottom=.16, right=.85, top=.92,hspace = 0.5,wspace=0.4)
+    height = 4.00
+    width = 4.00
+
+    fig.set_size_inches(height, width)
+    fig.savefig(saveas)
+
+#-------------------------------------------------------------------------------------------
+
+def plotResultsSoftmax2Heatmap(resultsFile,saveas):
+
+    plt.rc('font', family='serif', serif='Times')
+    plt.rc('xtick', labelsize=6)
+    plt.rc('ytick', labelsize=6)
+    plt.rc('axes', labelsize=6)
+
+    results = pickle.load(open( resultsFile , "rb" ))
+
+    fig,axes = plt.subplots(2,1)
+    plt.subplots_adjust(hspace=0.5)
+
+    predictions = results["predictions"]
+    realValues = results["Y_test"]
+
+    const, expan = [], []
+
+    const_const, const_expan, expan_const, expan_expan = 0,0,0,0
+    const_total, expan_total = 0,0
+    for i, val in enumerate(realValues):
+        if val[0] == 1.0:
+            const_total+=1
+            const.append(1.0 - predictions[i][0])
+            if predictions[i][0] > 0.5:
+                const_const+=1
+            if predictions[i][1] > 0.5:
+                const_expan+=1
+        else:
+            expan_total+=1
+            expan.append(predictions[i][1])
+            if predictions[i][0] > 0.5:
+                expan_const+=1
+            if predictions[i][1] > 0.5:
+                expan_expan+=1
+    np.array(const)
+    np.array(expan)
+
+    ce = round(cross_entropy(predictions,realValues),4)
+    labels = "Cross entropy = " + str(ce)
+
+    data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
+    rowLabels = ["Constant", "Growth"]
+    heatmap = axes[0].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
+    cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[0])
+    cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
+
+    # put the major ticks at the middle of each cell
+    axes[0].set_xticks(np.arange(data.shape[1]) + 0.5, minor=False)
+    axes[0].set_yticks(np.arange(data.shape[0]) + 0.5, minor=False)
+    axes[0].invert_yaxis()
+    axes[0].xaxis.tick_top()
+
+    plt.tick_params(axis='y', which='both', right='off')
+    plt.tick_params(axis='x', which='both', direction='out')
+    axes[0].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+
+
+    axes[0].set_yticklabels(rowLabels, minor=False, fontsize=6)
+    for y in range(data.shape[0]):
+        for x in range(data.shape[1]):
+            val = data[y, x]
+            val *= 100
+            if val > 50:
+                c = '0.9'
+            else:
+                c = 'black'
+            axes[0].text(x + 0.5, y + 0.5, '%.1f%%' % val, horizontalalignment='center', verticalalignment='center', color=c, fontsize=6)
+
+
+    axes[0].set_title(results["name"]+"\n"+labels,fontsize=6)
+
+    lossRowIndex = 1
+    axes[1].plot(results["loss"],label = "CE loss",color="orange")
+    axes[1].plot(results["val_loss"], label= "CE validation loss",color="blue")
+
+    axes[1].legend(frameon = False,fontsize = 6)
+    axes[1].set_ylabel("Cross entropy")
+
+    fig.subplots_adjust(left=.15, bottom=.15, right=.85, top=0.87, hspace = 0.5, wspace=0.4)
+    height = 4.00
+    width = 4.00
+
+    fig.set_size_inches(height, width)
+    fig.savefig(saveas)
+
+#-------------------------------------------------------------------------------------------
+
+def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
+
+    plt.rc('font', family='serif', serif='Times')
+    plt.rc('xtick', labelsize=6)
+    plt.rc('ytick', labelsize=6)
+    plt.rc('axes', labelsize=6)
+
+    results = pickle.load(open( resultsFile , "rb" ))
+
+    fig,axes = plt.subplots(2,1)
+    plt.subplots_adjust(hspace=0.5)
+
+    predictions = results["predictions"]
+    realValues = results["Y_test"]
+
+    const, expan = [], []
+
+    const_const, const_expan, expan_const, expan_expan = 0,0,0,0
+    const_total, expan_total = 0,0
+    for i, val in enumerate(realValues):
+        if val[0] == 1.0:
+            const_total+=1
+            const.append(1.0 - predictions[i][0])
+            if predictions[i][0] > 0.5:
+                const_const+=1
+            if predictions[i][1] > 0.5:
+                const_expan+=1
+        else:
+            expan_total+=1
+            expan.append(predictions[i][1])
+            if predictions[i][0] > 0.5:
+                expan_const+=1
+            if predictions[i][1] > 0.5:
+                expan_expan+=1
+    np.array(const)
+    np.array(expan)
+
+    ce = round(cross_entropy(predictions,realValues),4)
+    labels = "Cross entropy = " + str(ce)
+
+    data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
+    rowLabels = ["Constant", "Growth"]
+    heatmap = axes[0].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
+    cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[0])
+    cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
+
+    # put the major ticks at the middle of each cell
+    axes[0].set_xticks(np.arange(data.shape[1]) + 0.5, minor=False)
+    axes[0].set_yticks(np.arange(data.shape[0]) + 0.5, minor=False)
+    axes[0].invert_yaxis()
+    axes[0].xaxis.tick_top()
+
+    plt.tick_params(axis='y', which='both', right='off')
+    plt.tick_params(axis='x', which='both', direction='out')
+    axes[0].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+
+
+    axes[0].set_yticklabels(rowLabels, minor=False, fontsize=6)
+    for y in range(data.shape[0]):
+        for x in range(data.shape[1]):
+            val = data[y, x]
+            val *= 100
+            if val > 50:
+                c = '0.9'
+            else:
+                c = 'black'
+            axes[0].text(x + 0.5, y + 0.5, '%.1f%%' % val, horizontalalignment='center', verticalalignment='center', color=c, fontsize=6)
+
+
+    axes[0].set_title(results["name"]+"\n"+labels,fontsize=6)
+
+    results = pickle.load(open(resultsFile2 , "rb"))
+
+    predictions = results["predictions"]
+    realValues = results["Y_test"]
+
+    const, expan = [], []
+
+    const_const, const_expan, expan_const, expan_expan = 0,0,0,0
+    const_total, expan_total = 0,0
+    for i, val in enumerate(realValues):
+        if val[0] == 1.0:
+            const_total+=1
+            const.append(1.0 - predictions[i][0])
+            if predictions[i][0] > 0.5:
+                const_const+=1
+            if predictions[i][1] > 0.5:
+                const_expan+=1
+        else:
+            expan_total+=1
+            expan.append(predictions[i][1])
+            if predictions[i][0] > 0.5:
+                expan_const+=1
+            if predictions[i][1] > 0.5:
+                expan_expan+=1
+    np.array(const)
+    np.array(expan)
+
+    ce = round(cross_entropy(predictions,realValues),4)
+    labels = "Cross entropy = " + str(ce)
+
+    data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
+    rowLabels = ["Constant", "Growth"]
+    heatmap = axes[1].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
+    cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[1])
+    cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
+
+    # put the major ticks at the middle of each cell
+    axes[1].set_xticks(np.arange(data.shape[1]) + 0.5, minor=False)
+    axes[1].set_yticks(np.arange(data.shape[0]) + 0.5, minor=False)
+    axes[1].invert_yaxis()
+    axes[1].xaxis.tick_top()
+
+    plt.tick_params(axis='y', which='both', right='off')
+    plt.tick_params(axis='x', which='both', direction='out')
+    axes[1].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+
+
+    axes[1].set_yticklabels(rowLabels, minor=False, fontsize=6)
+    for y in range(data.shape[0]):
+        for x in range(data.shape[1]):
+            val = data[y, x]
+            val *= 100
+            if val > 50:
+                c = '0.9'
+            else:
+                c = 'black'
+            axes[1].text(x + 0.5, y + 0.5, '%.1f%%' % val, horizontalalignment='center', verticalalignment='center', color=c, fontsize=6)
+
+
+    axes[1].set_title(results["name"]+"\n"+labels,fontsize=6)
+
+    fig.subplots_adjust(left=.15, bottom=.15, right=.85, top=0.87, hspace = 0.5, wspace=0.4)
     height = 4.00
     width = 4.00
 

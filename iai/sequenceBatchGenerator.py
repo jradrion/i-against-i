@@ -195,18 +195,22 @@ class SequenceBatchGenerator(keras.utils.Sequence):
         norm = self.targetNormalization
         nTargets = copy.deepcopy(self.infoDir['gr'])
 
-        nTargets[nTargets<=0] = 0
-        nTargets[nTargets>0] = 1
+        ### Use for categorical crossentropy
+        tmps = []
+        for i in range(len(nTargets)):
+            if nTargets[i]<=0:
+                tmp = [1.0,0.0]
+            else:
+                tmp = [0.0,1.0]
+            tmps.append(tmp)
+        nTargets = np.array(tmps)
+        ### Use for categorical crossentropy
 
-       # if(norm == 'zscore'):
-       #     tar_mean = np.mean(nTargets,axis=0)
-       #     tar_sd = np.std(nTargets,axis=0)
-       #     nTargets -= tar_mean
-       #     nTargets = np.divide(nTargets,tar_sd,out=np.zeros_like(nTargets),where=tar_sd!=0)
+        ### Use for binary crossentropy
+        #nTargets[nTargets<=0] = 0
+        #nTargets[nTargets>0] = 1
+        ### Use for binary crossentropy
 
-       # elif(norm == 'divstd'):
-       #     tar_sd = np.std(nTargets,axis=0)
-       #     nTargets = np.divide(nTargets,tar_sd,out=np.zeros_like(nTargets),where=tar_sd!=0)
 
         return nTargets
 
@@ -281,7 +285,8 @@ class SequenceBatchGenerator(keras.utils.Sequence):
             haps.append(H)
             pos.append(P)
 
-        respectiveNormalizedTargets = [[t] for t in self.normalizedTargets[batchTreeIndices]]
+        #respectiveNormalizedTargets = [[t] for t in self.normalizedTargets[batchTreeIndices]] # use for binary crossentropy
+        respectiveNormalizedTargets = [t for t in self.normalizedTargets[batchTreeIndices]] # use for categorical crossentropy
         targets = np.array(respectiveNormalizedTargets)
 
         if(self.realLinePos):
@@ -323,7 +328,8 @@ class SequenceBatchGenerator(keras.utils.Sequence):
                 haps=np.where(haps > 1.0, self.padVal, haps)
                 haps=np.where(haps == 1.0, self.derVal, haps)
 
-                return [haps,pos], targets
+                #return [haps,pos], targets
+                return haps, targets
 
 
 class VCFBatchGenerator(keras.utils.Sequence):

@@ -25,6 +25,7 @@ setup(name='i-against-i',
       scripts=[
             "iai/iai-simulate",
             "iai/iai-train",
+            "iai/iai-train_adv",
             "iai/iai-predict"],
       zip_safe=False,
       setup_requires=[],

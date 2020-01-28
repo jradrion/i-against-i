@@ -89,8 +89,8 @@ def main():
 
 
     ## Train network
-    runModels(ModelFuncPointer=iaiCNN,
-            ModelName="iaiCNN",
+    runModels(ModelFuncPointer=iaiCNN_categorical_crossentropy,
+            ModelName="iaiCNN_categorical_crossentropy",
             TrainDir=trainDir,
             TrainGenerator=train_sequence,
             ValidationGenerator=vali_sequence,
@@ -104,8 +104,9 @@ def main():
             gpuID=args.gpuID)
 
 
-    ## Plot results of predictions on test set
-    plotResultsSigmoid(resultsFile=test_resultFile,saveas=test_resultFig)
+    ### Plot results of predictions on test set
+    #plotResultsSigmoid(resultsFile=test_resultFile,saveas=test_resultFig)
+    plotResultsSoftmax2(resultsFile=test_resultFile,saveas=test_resultFig)
 
 
     print("\n***FINISHED!***\n")
