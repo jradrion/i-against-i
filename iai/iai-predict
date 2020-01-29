@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d_a','--projectDir_A',dest='outDir_A',help='Directory for all project output for parameter set A. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
     parser.add_argument('-d_b','--projectDir_B',dest='outDir_B',help='Directory for all project output for parameter set B. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
     parser.add_argument('-w','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
     parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
     parser.add_argument('--nValSteps',dest='nValSteps',help='Number of validation steps', type=int, default=20)
@@ -20,8 +21,7 @@ def main():
     parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
     parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
     args = parser.parse_args()
- 
-
+    
     ## Set seed
     if args.seed:
         random.seed(args.seed)
@@ -47,13 +47,15 @@ def main():
     
     if not args.outDir_B:
         print("Warning: No project directory found, using current working directory.")
-        projectDir = os.getcwd()
+        projectDir_A = args.outDir_A
+        projectDir_B = os.getcwd()
     else:
-        projectDir = args.outDir_B
-    trainDir = os.path.join(projectDir,"train")
-    valiDir = os.path.join(projectDir,"vali")
-    testDir = os.path.join(projectDir,"test")
-    networkDir = os.path.join(projectDir,"networks")
+        projectDir_A = args.outDir_A
+        projectDir_B = args.outDir_B
+    trainDir = os.path.join(projectDir_A,"train")
+    valiDir = os.path.join(projectDir_A,"vali")
+    testDir = os.path.join(projectDir_B,"test")
+    networkDir = os.path.join(projectDir_B,"networks")
 
 
     ## Define output files
@@ -64,9 +66,16 @@ def main():
 
 
     ## Identify padding required
-    maxSegSites = 1000
-
-
+    ## using the option 0 will trim all tensors to the length of the tensor with the fewest sites
+    maxSegSites = float("inf")
+    if args.maxSegSites == 0:
+        for nDir in [trainDir,valiDir]:
+            S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
+            maxSegSites = min(maxSegSites, S_min)
+    else:
+        maxSegSites = args.maxSegSites
+    
+    
     ## Set network parameters
     bds_train_params = {
         'treesDirectory':trainDir,

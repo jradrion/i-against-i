@@ -331,7 +331,7 @@ def runModels(ModelFuncPointer,
                 monitor='val_loss',
                 verbose=1,
                 min_delta=0.01,
-                patience=50),
+                patience=25),
             keras.callbacks.ModelCheckpoint(
                 filepath=network[1],
                 monitor='val_loss',
@@ -456,7 +456,7 @@ def runModelsAdv(ModelFuncPointer,
             keras.callbacks.EarlyStopping(
                 verbose=1,
                 min_delta=0.01,
-                patience=50),
+                patience=25),
             keras.callbacks.ModelCheckpoint(
                 filepath=network[1],
                 save_best_only=True)
@@ -505,6 +505,12 @@ def runModelsAdv(ModelFuncPointer,
                                    verbose=0)
     report.clean_train_clean_eval = acc
     report.clean_train_adv_eval = adv_acc
+    outLog = resultsFile.replace(".p","_log.txt")
+    with open(outLog, "w") as fOUT:
+        fOUT.write("Before adversarial training\n")
+        fOUT.write("===========================\n")
+        fOUT.write("Test accuracy on legitimate examples: %0.4f\n" % acc)
+        fOUT.write("Test accuracy on adversarial examples: %0.4f\n" % adv_acc)
     print('\nTest accuracy on legitimate examples: %0.4f' % acc)
     print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
 
@@ -565,7 +571,7 @@ def runModelsAdv(ModelFuncPointer,
             keras.callbacks.EarlyStopping(
                 verbose=1,
                 min_delta=0.01,
-                patience=50),
+                patience=25),
             keras.callbacks.ModelCheckpoint(
                 filepath=network[1].replace(".h5","_2.h5"),
                 save_best_only=True)
@@ -590,6 +596,11 @@ def runModelsAdv(ModelFuncPointer,
 
     report.adv_train_clean_eval = acc
     report.adv_train_adv_eval = adv_acc
+    with open(outLog, "a") as fOUT:
+        fOUT.write("\nAfter adversarial training\n")
+        fOUT.write("===========================\n")
+        fOUT.write("Test accuracy on legitimate examples: %0.4f\n" % acc)
+        fOUT.write("Test accuracy on adversarial examples: %0.4f\n" % adv_acc)
     print('Test accuracy on legitimate examples: %0.4f' % acc)
     print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
 
@@ -1367,7 +1378,7 @@ def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
 
     axes[1].set_title(results["name"]+"\n"+labels,fontsize=6)
 
-    fig.subplots_adjust(left=.15, bottom=.15, right=.85, top=0.87, hspace = 0.5, wspace=0.4)
+    fig.subplots_adjust(left=.15, bottom=.05, right=.85, top=0.87, hspace = 0.6, wspace=0.4)
     height = 4.00
     width = 4.00
 

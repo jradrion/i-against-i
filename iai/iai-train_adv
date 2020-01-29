@@ -8,6 +8,7 @@ from iai.networks import *
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
     parser.add_argument('-w','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
     parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
     parser.add_argument('--nValSteps',dest='nValSteps',help='Number of validation steps', type=int, default=20)
@@ -44,7 +45,14 @@ def main():
 
 
     ## Identify padding required
-    maxSegSites = 1000
+    ## using the option 0 will trim all tensors to the length of the tensor with the fewest sites
+    maxSegSites = float("inf")
+    if args.maxSegSites == 0:
+        for nDir in [trainDir,valiDir]:
+            S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
+            maxSegSites = min(maxSegSites, S_min)
+    else:
+        maxSegSites = args.maxSegSites
 
 
     ## Set network parameters

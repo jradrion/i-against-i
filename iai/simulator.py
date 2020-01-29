@@ -157,6 +157,12 @@ class Simulator(object):
                     recombination_rate=RR
                 )
 
+        ##write tree sequence
+        #TSpath = os.path.join(direc,str(simNum) + ".ts")
+        #ts.dump(TSpath)
+        ##print(GR, ts.get_num_trees())
+
+
         # Convert tree sequence to genotype matrix, and position matrix
         H = ts.genotype_matrix()
         P = np.array([s.position for s in ts.sites()],dtype='float32')
@@ -295,7 +301,7 @@ class Simulator(object):
         if gr:
             print("mean segSites with growth:", sum(gr)/float(len(gr)))
         if no_gr:
-           print("mean segSites no growth:", sum(no_gr)/float(len(no_gr)))
+            print("mean segSites no growth:", sum(no_gr)/float(len(no_gr)))
 
         self.__dict__["numReps"] = numReps
         infofile = open(os.path.join(direc,"info.p"),"wb")

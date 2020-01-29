@@ -198,7 +198,7 @@ class SequenceBatchGenerator(keras.utils.Sequence):
         ### Use for categorical crossentropy
         tmps = []
         for i in range(len(nTargets)):
-            if nTargets[i]<=0:
+            if nTargets[i]==0.0:
                 tmp = [1.0,0.0]
             else:
                 tmp = [0.0,1.0]
