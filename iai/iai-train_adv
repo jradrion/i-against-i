@@ -101,6 +101,7 @@ def main():
     runModelsAdv(ModelFuncPointer=iaiCNN_adv,
             ModelName="iaiCNN_adv",
             NetworkDir=networkDir,
+            projectDir=projectDir,
             TrainGenerator=train_sequence,
             ValidationGenerator=vali_sequence,
             TestGenerator=test_sequence,

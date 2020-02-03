@@ -328,7 +328,6 @@ class SequenceBatchGenerator(keras.utils.Sequence):
                 haps=np.where(haps > 1.0, self.padVal, haps)
                 haps=np.where(haps == 1.0, self.derVal, haps)
 
-                #return [haps,pos], targets
                 return haps, targets
 
 

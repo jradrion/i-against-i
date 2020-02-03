@@ -386,6 +386,7 @@ def runModels(ModelFuncPointer,
 def runModelsAdv(ModelFuncPointer,
             ModelName,
             NetworkDir,
+            projectDir,
             TrainGenerator,
             ValidationGenerator,
             TestGenerator,
@@ -476,27 +477,33 @@ def runModelsAdv(ModelFuncPointer,
 
     # Save genotype images for testset
     print("\nGenerating adversarial examples and writing images/predicions...")
-    imageDir = os.path.join(NetworkDir,"images")
+    imageDir = os.path.join(projectDir,"test_images")
     if not os.path.exists(imageDir):
         os.makedirs(imageDir)
     for i in range(x_test.shape[0]):
         org_predFILE = os.path.join(imageDir,"examp{}_org_pred.txt".format(i))
         adv_predFILE = os.path.join(imageDir,"examp{}_adv_pred.txt".format(i))
+        org_gmFILE = os.path.join(imageDir,"examp{}_org.npy".format(i))
+        adv_gmFILE = os.path.join(imageDir,"examp{}_adv.npy".format(i))
         org_imageFILE = os.path.join(imageDir,"examp{}_org.png".format(i))
         adv_imageFILE = os.path.join(imageDir,"examp{}_adv.png".format(i))
         delta_imageFILE = os.path.join(imageDir,"examp{}_delta.png".format(i))
-        adv_example = fgsm.generate_np(x_test[i].reshape((1, x_test.shape[1], x_test.shape[2])), **fgsm_params)
-        pred_org = model.predict(x_test[i].reshape(1, x_test.shape[1], x_test.shape[2]))
+        org_example = x_test[i].reshape((1, x_test.shape[1], x_test.shape[2]))
+        adv_example = fgsm.generate_np(org_example, **fgsm_params)
+        pred_org = model.predict(org_example)
         pred_adv = model.predict(adv_example)
         np.savetxt(org_predFILE, pred_org)
         np.savetxt(adv_predFILE, pred_adv)
-        org_image = x_test[i].reshape((img_rows, img_cols))
+        org_image = org_example.reshape((img_rows, img_cols))
         adv_image = adv_example.reshape((img_rows, img_cols))
         delta_image = org_image - adv_image
+        np.save(org_gmFILE, org_example)
+        np.save(adv_gmFILE, adv_example)
         plt.imsave(org_imageFILE, org_image)
         plt.imsave(adv_imageFILE, adv_image)
         plt.imsave(delta_imageFILE, delta_image)
         progress_bar(i/float(x_test.shape[0]))
+
 
     # Evaluate the accuracy on legitimate and adversarial test examples
     report = AccuracyReport()
@@ -645,6 +652,7 @@ def runModelsAdv(ModelFuncPointer,
 def runModelsMisspecified(ModelFuncPointer,
             ModelName,
             NetworkDir,
+            projectDir,
             TrainGenerator,
             ValidationGenerator,
             TestGenerator,
@@ -675,9 +683,22 @@ def runModelsMisspecified(ModelFuncPointer,
 
     # Read all test data into memory
     x_test, y_test = TestGenerator.__getitem__(0)
-
     img_rows, img_cols = x_test.shape[1], x_test.shape[2]
     nb_classes = y_test.shape[1]
+
+    # Save images/post-generator genotypes for testset
+    print("\nWriting images and post-generator genotypes...")
+    imageDir = os.path.join(projectDir,"test_images")
+    if not os.path.exists(imageDir):
+        os.makedirs(imageDir)
+    for i in range(x_test.shape[0]):
+        org_gmFILE = os.path.join(imageDir,"examp{}_org.npy".format(i))
+        org_imageFILE = os.path.join(imageDir,"examp{}_org.png".format(i))
+        org_example = x_test[i].reshape((1, x_test.shape[1], x_test.shape[2]))
+        org_image = org_example.reshape((img_rows, img_cols))
+        np.save(org_gmFILE, org_example)
+        plt.imsave(org_imageFILE, org_image)
+        progress_bar(i/float(x_test.shape[0]))
 
     # Load json and create model
     if(network != None):
@@ -1384,6 +1405,212 @@ def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
 
     fig.set_size_inches(height, width)
     fig.savefig(saveas)
+
+#-------------------------------------------------------------------------------------------
+
+def plotSummaryStats(projectDir_A, projectDir_B, saveas):
+
+    ## Load all test results
+    test_info_A = pickle.load(open(os.path.join(projectDir_A, "test", "info.p"), "rb"))
+    test_info_B = pickle.load(open(os.path.join(projectDir_B, "test", "info.p"), "rb"))
+    G_A_org, G_A_adv, G_B_org = [],[],[]
+    for i in range(test_info_A["numReps"]):
+        Hfilepath = os.path.join(projectDir_A, "test_images", "examp%s_org.npy" %(i))
+        H = np.load(Hfilepath)
+        G_A_org.append(H[0])
+        Hfilepath = os.path.join(projectDir_A, "test_images", "examp%s_adv.npy" %(i))
+        H = np.load(Hfilepath)
+        G_A_adv.append(H[0])
+        Hfilepath = os.path.join(projectDir_B, "test_images", "examp%s_org.npy" %(i))
+        H = np.load(Hfilepath)
+        G_B_org.append(H[0])
+    G_A_org = np.array(G_A_org,dtype="int8")
+    G_A_adv = np.array(G_A_adv,dtype="int8")
+    G_B_org = np.array(G_B_org,dtype="int8")
+
+    ## Calculate stats for projectDir_A original examples
+    A_org_ng_D, A_org_gr_D = [], []
+    for i, gm in enumerate(G_A_org):
+        haps = allel.HaplotypeArray(gm)
+        gens = allel.GenotypeArray(haps.to_genotypes(ploidy=2))
+        ac = gens.count_alleles()
+        D = allel.tajima_d(ac)
+        if test_info_A["gr"][i] > 0.0:
+            A_org_gr_D.append(D)
+        else:
+            A_org_ng_D.append(D)
+    print("A_org_ng_D:", np.average(np.array(A_org_ng_D)))
+    print("A_org_gr_D:", np.average(np.array(A_org_gr_D)))
+    print("=============================================")
+    print("=============================================")
+
+    ## Calculate stats for projectDir_A adversarial examples
+    A_adv_ng_D, A_adv_gr_D = [], []
+    for i, gm in enumerate(G_A_adv):
+        haps = allel.HaplotypeArray(gm)
+        gens = allel.GenotypeArray(haps.to_genotypes(ploidy=2))
+        ac = gens.count_alleles()
+        D = allel.tajima_d(ac)
+        if test_info_A["gr"][i] > 0.0:
+            A_adv_gr_D.append(D)
+        else:
+            A_adv_ng_D.append(D)
+    print("A_adv_ng_D:", np.average(np.array(A_adv_ng_D)))
+    print("A_adv_gr_D:", np.average(np.array(A_adv_gr_D)))
+    print("=============================================")
+    print("=============================================")
+
+    ## Calculate stats for projectDir_B original examples
+    B_org_ng_D, B_org_gr_D = [], []
+    for i, gm in enumerate(G_B_org):
+        haps = allel.HaplotypeArray(gm)
+        gens = allel.GenotypeArray(haps.to_genotypes(ploidy=2))
+        ac = gens.count_alleles()
+        D = allel.tajima_d(ac)
+        if test_info_B["gr"][i] > 0.0:
+            B_org_gr_D.append(D)
+        else:
+            B_org_ng_D.append(D)
+    print("B_org_ng_D:", np.average(np.array(B_org_ng_D)))
+    print("B_org_gr_D:", np.average(np.array(B_org_gr_D)))
+    print("=============================================")
+    print("=============================================")
+    #plt.rc('font', family='serif', serif='Times')
+    #plt.rc('xtick', labelsize=6)
+    #plt.rc('ytick', labelsize=6)
+    #plt.rc('axes', labelsize=6)
+
+    #results = pickle.load(open( resultsFile , "rb" ))
+
+    #fig,axes = plt.subplots(2,1)
+    #plt.subplots_adjust(hspace=0.5)
+
+    #predictions = results["predictions"]
+    #realValues = results["Y_test"]
+
+    #const, expan = [], []
+
+    #const_const, const_expan, expan_const, expan_expan = 0,0,0,0
+    #const_total, expan_total = 0,0
+    #for i, val in enumerate(realValues):
+    #    if val[0] == 1.0:
+    #        const_total+=1
+    #        const.append(1.0 - predictions[i][0])
+    #        if predictions[i][0] > 0.5:
+    #            const_const+=1
+    #        if predictions[i][1] > 0.5:
+    #            const_expan+=1
+    #    else:
+    #        expan_total+=1
+    #        expan.append(predictions[i][1])
+    #        if predictions[i][0] > 0.5:
+    #            expan_const+=1
+    #        if predictions[i][1] > 0.5:
+    #            expan_expan+=1
+    #np.array(const)
+    #np.array(expan)
+
+    #ce = round(cross_entropy(predictions,realValues),4)
+    #labels = "Cross entropy = " + str(ce)
+
+    #data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
+    #rowLabels = ["Constant", "Growth"]
+    #heatmap = axes[0].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
+    #cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[0])
+    #cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
+
+    ## put the major ticks at the middle of each cell
+    #axes[0].set_xticks(np.arange(data.shape[1]) + 0.5, minor=False)
+    #axes[0].set_yticks(np.arange(data.shape[0]) + 0.5, minor=False)
+    #axes[0].invert_yaxis()
+    #axes[0].xaxis.tick_top()
+
+    #plt.tick_params(axis='y', which='both', right='off')
+    #plt.tick_params(axis='x', which='both', direction='out')
+    #axes[0].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+
+
+    #axes[0].set_yticklabels(rowLabels, minor=False, fontsize=6)
+    #for y in range(data.shape[0]):
+    #    for x in range(data.shape[1]):
+    #        val = data[y, x]
+    #        val *= 100
+    #        if val > 50:
+    #            c = '0.9'
+    #        else:
+    #            c = 'black'
+    #        axes[0].text(x + 0.5, y + 0.5, '%.1f%%' % val, horizontalalignment='center', verticalalignment='center', color=c, fontsize=6)
+
+
+    #axes[0].set_title(results["name"]+"\n"+labels,fontsize=6)
+
+    #results = pickle.load(open(resultsFile2 , "rb"))
+
+    #predictions = results["predictions"]
+    #realValues = results["Y_test"]
+
+    #const, expan = [], []
+
+    #const_const, const_expan, expan_const, expan_expan = 0,0,0,0
+    #const_total, expan_total = 0,0
+    #for i, val in enumerate(realValues):
+    #    if val[0] == 1.0:
+    #        const_total+=1
+    #        const.append(1.0 - predictions[i][0])
+    #        if predictions[i][0] > 0.5:
+    #            const_const+=1
+    #        if predictions[i][1] > 0.5:
+    #            const_expan+=1
+    #    else:
+    #        expan_total+=1
+    #        expan.append(predictions[i][1])
+    #        if predictions[i][0] > 0.5:
+    #            expan_const+=1
+    #        if predictions[i][1] > 0.5:
+    #            expan_expan+=1
+    #np.array(const)
+    #np.array(expan)
+
+    #ce = round(cross_entropy(predictions,realValues),4)
+    #labels = "Cross entropy = " + str(ce)
+
+    #data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
+    #rowLabels = ["Constant", "Growth"]
+    #heatmap = axes[1].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
+    #cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[1])
+    #cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
+
+    ## put the major ticks at the middle of each cell
+    #axes[1].set_xticks(np.arange(data.shape[1]) + 0.5, minor=False)
+    #axes[1].set_yticks(np.arange(data.shape[0]) + 0.5, minor=False)
+    #axes[1].invert_yaxis()
+    #axes[1].xaxis.tick_top()
+
+    #plt.tick_params(axis='y', which='both', right='off')
+    #plt.tick_params(axis='x', which='both', direction='out')
+    #axes[1].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+
+
+    #axes[1].set_yticklabels(rowLabels, minor=False, fontsize=6)
+    #for y in range(data.shape[0]):
+    #    for x in range(data.shape[1]):
+    #        val = data[y, x]
+    #        val *= 100
+    #        if val > 50:
+    #            c = '0.9'
+    #        else:
+    #            c = 'black'
+    #        axes[1].text(x + 0.5, y + 0.5, '%.1f%%' % val, horizontalalignment='center', verticalalignment='center', color=c, fontsize=6)
+
+
+    #axes[1].set_title(results["name"]+"\n"+labels,fontsize=6)
+
+    #fig.subplots_adjust(left=.15, bottom=.05, right=.85, top=0.87, hspace = 0.6, wspace=0.4)
+    #height = 4.00
+    #width = 4.00
+
+    #fig.set_size_inches(height, width)
+    #fig.savefig(saveas)
 
 #-------------------------------------------------------------------------------------------
 

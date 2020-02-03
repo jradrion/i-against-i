@@ -36,9 +36,6 @@ def main():
     print("Copying contents of Dir_A/networks to Dir_B/networks")
     cmd = "cp -r %s %s" %(os.path.join(args.outDir_A,"networks"), args.outDir_B)
     os.system(cmd)
-    ## remove the copied images file
-    cmd = "rm -rf %s" %(os.path.join(args.outDir_B,"networks","images"))
-    os.system(cmd)
     cmd = "mv %s %s" %(os.path.join(args.outDir_B,"networks","testSet_sfs.pdf"), os.path.join(args.outDir_B,"networks","testSet_A_sfs.pdf"))
     os.system(cmd)
 
@@ -122,6 +119,7 @@ def main():
     runModelsMisspecified(ModelFuncPointer=iaiCNN_adv,
             ModelName="iaiCNN_adv",
             NetworkDir=networkDir,
+            projectDir=projectDir_B,
             TrainGenerator=train_sequence,
             ValidationGenerator=vali_sequence,
             TestGenerator=test_sequence,
@@ -138,7 +136,7 @@ def main():
 
     ## Plot results of predictions on test set
     plotResultsSoftmax2HeatmapMis(resultsFile=test_resultFile, resultsFile2=test_resultFile.replace(".p","_2.p"), saveas=test_resultFig.replace(".pdf","_compared.pdf"))
-
+    plotSummaryStats(projectDir_A=projectDir_A, projectDir_B=projectDir_B, saveas=test_resultFig.replace(".pdf","_stats.pdf"))
 
     print("\n***FINISHED!***\n")
 
