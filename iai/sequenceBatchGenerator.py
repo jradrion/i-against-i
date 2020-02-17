@@ -1,3 +1,7 @@
+'''
+Authors: Jared Galloway, Jeff Adrion
+'''
+
 from iai.imports import *
 
 class SequenceBatchGenerator(keras.utils.Sequence):

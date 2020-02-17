@@ -59,7 +59,7 @@ def main():
     bds_train_params = {
         'treesDirectory':trainDir,
         'targetNormalization':"zscore",
-        'batchSize': 64,
+        'batchSize': 5000,
         'maxLen': maxSegSites,
         'frameWidth': 0,
         'shuffleInds':True,
@@ -98,7 +98,23 @@ def main():
 
     
     ## Train network
-    runModelsAdv(ModelFuncPointer=iaiCNN_adv,
+    #runModelsAdv(ModelFuncPointer=iaiCNN_adv,
+    #        ModelName="iaiCNN_adv",
+    #        NetworkDir=networkDir,
+    #        projectDir=projectDir,
+    #        TrainGenerator=train_sequence,
+    #        ValidationGenerator=vali_sequence,
+    #        TestGenerator=test_sequence,
+    #        resultsFile=test_resultFile,
+    #        init=args.weights,
+    #        network=[modelSave,weightsSave],
+    #        numEpochs=args.nEpochs,
+    #        validationSteps=args.nValSteps,
+    #        nCPU=args.nCPU,
+    #        gpuID=args.gpuID,
+    #        learningRate=0.001)
+    
+    runModelsJSMA(ModelFuncPointer=iaiCNN_adv,
             ModelName="iaiCNN_adv",
             NetworkDir=networkDir,
             projectDir=projectDir,

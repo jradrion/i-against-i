@@ -1,4 +1,3 @@
-
 from setuptools import setup, find_packages
 
 with open("README.md", "r") as fh:
@@ -15,13 +14,10 @@ setup(name='i-against-i',
       license='MIT',
       packages=find_packages(exclude=[]),
       install_requires=[
-            "msprime",
-            "numpy>=1.16.0",
-            "h5py",
-            "scikit-allel",
-            "matplotlib",
-            "sklearn",
-            "keras"],
+          "msprime>=0.7.4",
+          "scikit-learn>=0.22.1",
+          "matplotlib>=3.1.3",
+          "scikit-allel>=1.2.1"],
       scripts=[
             "iai/iai-simulate",
             "iai/iai-train",

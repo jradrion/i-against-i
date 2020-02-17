@@ -1,3 +1,7 @@
+'''
+Author: Jared Galloway, Jeff Adrion
+'''
+
 from iai.imports import *
 from iai.helpers import *
 

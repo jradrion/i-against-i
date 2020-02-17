@@ -1,3 +1,7 @@
+'''
+Authors: Jeff Adrion
+'''
+
 from iai.imports import *
 from iai.helpers import *
 
