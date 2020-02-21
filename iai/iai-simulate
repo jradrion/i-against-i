@@ -49,11 +49,10 @@ def main():
     valiDir = os.path.join(projectDir,"vali")
     testDir = os.path.join(projectDir,"test")
     networkDir = os.path.join(projectDir,"networks")
-    vcfDir = os.path.join(projectDir,"splitVCFs")
 
 
     ## Make directories if they do not exist
-    for p in [projectDir,trialDir,trainDir,valiDir,testDir,networkDir,vcfDir]:
+    for p in [projectDir,trialDir,trainDir,valiDir,testDir,networkDir]:
         if not os.path.exists(p):
             os.makedirs(p)
 
@@ -201,7 +200,8 @@ def main():
     f.savefig(outfile, bbox_inches='tight')
     plt.close()
 
-
+    ## remove trial directory
+    shutil.rmtree(trialDir)
 
 if __name__ == "__main__":
 	main()

@@ -28,7 +28,7 @@ def main():
         np.random.seed(args.seed)
         tf.random.set_seed(args.seed)
     
-    ### Shuffle files around
+    ### Shuffle files and directories around
     ## rename Dir_B sfs.pdf
     cmd = "mv %s %s" %(os.path.join(args.outDir_B,"networks","testSet_sfs.pdf"), os.path.join(args.outDir_B,"networks","testSet_B_sfs.pdf"))
     os.system(cmd)
@@ -38,7 +38,6 @@ def main():
     os.system(cmd)
     cmd = "mv %s %s" %(os.path.join(args.outDir_B,"networks","testSet_sfs.pdf"), os.path.join(args.outDir_B,"networks","testSet_A_sfs.pdf"))
     os.system(cmd)
-
 
     ## Set up the directory structure to store the simulations data.
     
@@ -50,7 +49,9 @@ def main():
         projectDir_A = args.outDir_A
         projectDir_B = args.outDir_B
     trainDir = os.path.join(projectDir_A,"train")
+    trainDirB = os.path.join(projectDir_B,"train")
     valiDir = os.path.join(projectDir_A,"vali")
+    valiDirB = os.path.join(projectDir_B,"vali")
     testDir = os.path.join(projectDir_B,"test")
     networkDir = os.path.join(projectDir_B,"networks")
 
@@ -116,10 +117,10 @@ def main():
 
     
     ## Train network
-    runModelsMisspecified(ModelFuncPointer=iaiCNN_adv,
-            ModelName="iaiCNN_adv",
+    runModels_cleverhans_tf2_B(ModelFuncPointer=iaiGRU_categorical_crossentropy_noPos,
+            ModelName="iaiGRU_categorical_crossentropy_noPos",
             NetworkDir=networkDir,
-            projectDir=projectDir_B,
+            ProjectDir=projectDir_B,
             TrainGenerator=train_sequence,
             ValidationGenerator=vali_sequence,
             TestGenerator=test_sequence,
@@ -136,9 +137,13 @@ def main():
 
     ## Plot results of predictions on test set
     plotResultsSoftmax2HeatmapMis(resultsFile=test_resultFile, resultsFile2=test_resultFile.replace(".p","_2.p"), saveas=test_resultFig.replace(".pdf","_compared.pdf"))
-    plotSummaryStats(projectDir_A=projectDir_A, projectDir_B=projectDir_B, saveas=test_resultFig.replace(".pdf","_stats.pdf"))
+    #plotSummaryStats(projectDir_A=projectDir_A, projectDir_B=projectDir_B, saveas=test_resultFig.replace(".pdf","_stats.pdf"))
+    
+    ## remove train and vali directories
 
     print("\n***FINISHED!***\n")
+    shutil.rmtree(trainDirB)
+    shutil.rmtree(valiDirB)
 
 if __name__ == "__main__":
 	main()

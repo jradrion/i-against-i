@@ -483,44 +483,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         progress_bar(i/float(x_test.shape[0]))
     print("\n")
 
-    #return model, y_pred, y_pred_fgsm, y_pred_pgd, fgsm_params
 
-
-#def adversarial_training_tf2(ModelFuncPointer,
-#            ModelName,
-#            NetworkDir,
-#            ProjectDir,
-#            TrainGenerator,
-#            ValidationGenerator,
-#            TestGenerator,
-#            model=None,
-#            y_pred=None,
-#            y_pred_fgsm=None,
-#            y_pred_pgd=None,
-#            fgsm_params=None,
-#            TrainParams=None,
-#            ValiParams=None,
-#            resultsFile=None,
-#            numEpochs=10,
-#            epochSteps=100,
-#            validationSteps=1,
-#            initModel=None,
-#            initWeights=None,
-#            network=None,
-#            nCPU = 1,
-#            gpuID = 0,
-#            learningRate=0.001):
-#
-#
-#    os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
-#
-#    ## The following code block appears necessary for running with tf2 and cudnn
-#    from tensorflow.compat.v1 import ConfigProto
-#    from tensorflow.compat.v1 import Session
-#    config = ConfigProto()
-#    config.gpu_options.allow_growth = True
-#    sess = Session(config=config)
-#    ###
 
     ########## Adversarial training #############
     ## similar objects as above except these have the extension _2
@@ -647,10 +610,10 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
 #-------------------------------------------------------------------------------------------
 
-def runModelsMisspecified(ModelFuncPointer,
+def runModels_cleverhans_tf2_B(ModelFuncPointer,
             ModelName,
             NetworkDir,
-            projectDir,
+            ProjectDir,
             TrainGenerator,
             ValidationGenerator,
             TestGenerator,
@@ -666,37 +629,19 @@ def runModelsMisspecified(ModelFuncPointer,
             learningRate=0.001
             ):
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpuID)
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
 
-    # Force TensorFlow to use single thread to improve reproducibility
-    config = tf.ConfigProto(intra_op_parallelism_threads=1,
-                          inter_op_parallelism_threads=1)
-
-    sess = tf.Session(config=config)
-    keras.backend.set_session(sess)
+    ## The following code block appears necessary for running with tf2 and cudnn
+    from tensorflow.compat.v1 import ConfigProto
+    from tensorflow.compat.v1 import Session
+    config = ConfigProto()
+    config.gpu_options.allow_growth = True
+    sess = Session(config=config)
+    ###
 
     if(resultsFile == None):
         resultsFilename = os.path.basename(trainFile)[:-4] + ".p"
         resultsFile = os.path.join("./results/",resultsFilename)
-
-    # Read all test data into memory
-    x_test, y_test = TestGenerator.__getitem__(0)
-    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
-    nb_classes = y_test.shape[1]
-
-    # Save images/post-generator genotypes for testset
-    print("\nWriting images and post-generator genotypes...")
-    imageDir = os.path.join(projectDir,"test_images")
-    if not os.path.exists(imageDir):
-        os.makedirs(imageDir)
-    for i in range(x_test.shape[0]):
-        org_gmFILE = os.path.join(imageDir,"examp{}_org.npy".format(i))
-        org_imageFILE = os.path.join(imageDir,"examp{}_org.png".format(i))
-        org_example = x_test[i].reshape((1, x_test.shape[1], x_test.shape[2]))
-        org_image = org_example.reshape((img_rows, img_cols))
-        np.save(org_gmFILE, org_example)
-        plt.imsave(org_imageFILE, org_image)
-        progress_bar(i/float(x_test.shape[0]))
 
     # Load json and create model
     if(network != None):
@@ -708,6 +653,72 @@ def runModelsMisspecified(ModelFuncPointer,
     else:
         print("Error: model and weights not loaded")
         sys.exit(1)
+
+    # Read all test data into memory
+    x_test, y_test = TestGenerator.__getitem__(0)
+    # predict on adversarial test examples using FGSM
+    print("Attacking using Fast Gradient Sign Method...")
+    fgsm_params = {'eps': 1.0,
+            'norm': np.inf,
+            'clip_min': 0.0,
+            'clip_max': 1.0}
+    x_fgsm = fast_gradient_method(model, x_test, **fgsm_params)
+
+
+    # Save genotype images for testset
+    print("\nGenerating adversarial examples and writing images/predicions...")
+    imageDir = os.path.join(ProjectDir,"test_images")
+    if not os.path.exists(imageDir):
+        os.makedirs(imageDir)
+    for i in range(x_test.shape[0]):
+        clean_gmFILE = os.path.join(imageDir,"examp{}_clean.npy".format(i))
+        fgsm_gmFILE = os.path.join(imageDir,"examp{}_fgsm.npy".format(i))
+        #pdg_gmFILE = os.path.join(imageDir,"examp{}_pgd.npy".format(i))
+        clean_imageFILE = os.path.join(imageDir,"examp{}_clean.png".format(i))
+        fgsm_imageFILE = os.path.join(imageDir,"examp{}_fgsm.png".format(i))
+        fgsm_delta_imageFILE = os.path.join(imageDir,"examp{}_fgsm_delta.png".format(i))
+        #pgd_imageFILE = os.path.join(imageDir,"examp{}_pgd.png".format(i))
+        #pgd_delta_imageFILE = os.path.join(imageDir,"examp{}_pgd_delta.png".format(i))
+        clean_image = x_test[i]
+        fgsm_image = x_fgsm[i]
+        fgsm_delta_image = clean_image - fgsm_image
+        #pgd_image = x_pgd[i]
+        #pgd_delta_image = clean_image - pgd_image
+        plt.imsave(clean_imageFILE, clean_image)
+        plt.imsave(fgsm_imageFILE, fgsm_image)
+        plt.imsave(fgsm_delta_imageFILE, fgsm_delta_image)
+        #plt.imsave(pgd_imageFILE, pgd_image)
+        #plt.imsave(pgd_delta_imageFILE, pgd_delta_image)
+        progress_bar(i/float(x_test.shape[0]))
+    print("\n")
+
+    #img_rows, img_cols = x_test.shape[1], x_test.shape[2]
+    #nb_classes = y_test.shape[1]
+
+    ## Save images/post-generator genotypes for testset
+    #print("\nWriting images and post-generator genotypes...")
+    #imageDir = os.path.join(projectDir,"test_images")
+    #if not os.path.exists(imageDir):
+    #    os.makedirs(imageDir)
+    #for i in range(x_test.shape[0]):
+    #    org_gmFILE = os.path.join(imageDir,"examp{}_org.npy".format(i))
+    #    org_imageFILE = os.path.join(imageDir,"examp{}_org.png".format(i))
+    #    org_example = x_test[i].reshape((1, x_test.shape[1], x_test.shape[2]))
+    #    org_image = org_example.reshape((img_rows, img_cols))
+    #    np.save(org_gmFILE, org_example)
+    #    plt.imsave(org_imageFILE, org_image)
+    #    progress_bar(i/float(x_test.shape[0]))
+
+    ## Load json and create model
+    #if(network != None):
+    #    jsonFILE = open(network[0],"r")
+    #    loadedModel = jsonFILE.read()
+    #    jsonFILE.close()
+    #    model=model_from_json(loadedModel)
+    #    model.load_weights(network[1])
+    #else:
+    #    print("Error: model and weights not loaded")
+    #    sys.exit(1)
 
     predictions = model.predict(x_test)
 
