@@ -40,7 +40,7 @@ def main():
     if args.seed:
         random.seed(args.seed)
         np.random.seed(args.seed)
-        set_random_seed(args.seed)
+        tf.random.set_seed(args.seed)
  
     ## Set up the directory structure to store the simulations data.
     nProc = args.nCPU

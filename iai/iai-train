@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 from iai.imports import *
 from iai.helpers import *
 from iai.sequenceBatchGenerator import *
@@ -9,20 +8,24 @@ from iai.networks import *
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
-    parser.add_argument('-w','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
+    parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
+    parser.add_argument('-im','--initModel',dest='model',help='Path to the initialization model',default=None)
+    parser.add_argument('-iw','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
     parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
     parser.add_argument('--nValSteps',dest='nValSteps',help='Number of validation steps', type=int, default=20)
     parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
     parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
     parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
     args = parser.parse_args()
-    
+ 
+
     ## Set seed
     if args.seed:
         random.seed(args.seed)
         np.random.seed(args.seed)
-        set_random_seed(args.seed)
-    
+        tf.random.set_seed(args.seed)
+ 
+
     ## Set up the directory structure to store the simulations data.
     if not args.outDir:
         print("Warning: No project directory found, using current working directory.")
@@ -43,20 +46,26 @@ def main():
 
 
     ## Identify padding required
-    maxSegSites = 1000
+    ## using maxSegSites=0 will trim all examples to the length of the example with the fewest sites
+    maxSegSites = float("inf")
+    if args.maxSegSites == 0:
+        for nDir in [trainDir,valiDir]:
+            S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
+            maxSegSites = min(maxSegSites, S_min)
+    else:
+        maxSegSites = args.maxSegSites
 
-
-    ## Set network parameters
+    
     bds_train_params = {
         'treesDirectory':trainDir,
         'targetNormalization':"zscore",
         'batchSize': 64,
         'maxLen': maxSegSites,
-        'frameWidth': 5,
+        'frameWidth': 0,
         'shuffleInds':True,
         'sortInds':False,
         'center':False,
-        'ancVal':-1,
+        'ancVal':0,
         'padVal':0,
         'derVal':1,
         'realLinePos':True,
@@ -87,26 +96,30 @@ def main():
     vali_sequence = SequenceBatchGenerator(**bds_vali_params)
     test_sequence = SequenceBatchGenerator(**bds_test_params)
 
-
-    ## Train network
-    runModels(ModelFuncPointer=iaiCNN_categorical_crossentropy,
-            ModelName="iaiCNN_categorical_crossentropy",
-            TrainDir=trainDir,
+    
+    # Train network
+    runModels_cleverhans_tf2(ModelFuncPointer=iaiGRU_categorical_crossentropy_noPos,
+            ModelName="iaiGRU_categorical_crossentropy_noPos",
+            NetworkDir=networkDir,
+            ProjectDir=projectDir,
             TrainGenerator=train_sequence,
+            TrainParams=bds_train_params,
+            ValiParams=bds_vali_params,
             ValidationGenerator=vali_sequence,
             TestGenerator=test_sequence,
             resultsFile=test_resultFile,
-            init=args.weights,
+            initModel=args.model,
+            initWeights=args.weights,
             network=[modelSave,weightsSave],
             numEpochs=args.nEpochs,
             validationSteps=args.nValSteps,
             nCPU=args.nCPU,
-            gpuID=args.gpuID)
-
-
-    ### Plot results of predictions on test set
-    #plotResultsSigmoid(resultsFile=test_resultFile,saveas=test_resultFig)
-    plotResultsSoftmax2(resultsFile=test_resultFile,saveas=test_resultFig)
+            gpuID=args.gpuID,
+            learningRate=0.001) 
+    
+    ## Plot results of predictions on test set
+    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig)
+    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_2.p"),saveas=test_resultFig.replace(".pdf","_2.pdf"))
 
 
     print("\n***FINISHED!***\n")

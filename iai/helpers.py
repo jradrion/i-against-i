@@ -3,6 +3,7 @@ Authors: Jared Galloway, Jeff Adrion
 '''
 
 from iai.imports import *
+from iai.sequenceBatchGenerator import *
 
 #-------------------------------------------------------------------------------------------
 
@@ -301,22 +302,36 @@ def load_and_predictVCF(VCFGenerator,
 
 #-------------------------------------------------------------------------------------------
 
-def runModels(ModelFuncPointer,
+def runModels_cleverhans_tf2(ModelFuncPointer,
             ModelName,
-            TrainDir,
+            NetworkDir,
+            ProjectDir,
             TrainGenerator,
             ValidationGenerator,
             TestGenerator,
+            TrainParams=None,
+            ValiParams=None,
             resultsFile=None,
             numEpochs=10,
             epochSteps=100,
             validationSteps=1,
-            init=None,
+            initModel=None,
+            initWeights=None,
             network=None,
             nCPU = 1,
-            gpuID = 0):
+            gpuID = 0,
+            learningRate=0.001):
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpuID)
+
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
+
+    ## The following code block appears necessary for running with tf2 and cudnn
+    from tensorflow.compat.v1 import ConfigProto
+    from tensorflow.compat.v1 import Session
+    config = ConfigProto()
+    config.gpu_options.allow_growth = True
+    sess = Session(config=config)
+    ###
 
     if(resultsFile == None):
 
@@ -326,305 +341,235 @@ def runModels(ModelFuncPointer,
     x,y = TrainGenerator.__getitem__(0)
     model = ModelFuncPointer(x,y)
 
-    if(init != None):
-        model.load_weights(init)
-
     # Early stopping and saving the best weights
     callbacks_list = [
-            keras.callbacks.EarlyStopping(
+            EarlyStopping(
                 monitor='val_loss',
                 verbose=1,
                 min_delta=0.01,
-                patience=25),
-            keras.callbacks.ModelCheckpoint(
+                patience=10),
+            ModelCheckpoint(
                 filepath=network[1],
                 monitor='val_loss',
                 save_best_only=True)
             ]
-
-    history = model.fit_generator(TrainGenerator,
-        steps_per_epoch= epochSteps,
-        epochs=numEpochs,
-        validation_data=ValidationGenerator,
-        validation_steps=validationSteps,
-        use_multiprocessing=True,
-        callbacks=callbacks_list,
-        max_queue_size=nCPU,
-        workers=nCPU,
-        )
-
-    # Write the network
-    if(network != None):
-        ##serialize model to JSON
-        model_json = model.to_json()
-        with open(network[0], "w") as json_file:
-            json_file.write(model_json)
-
-    # Load json and create model
-    if(network != None):
-        jsonFILE = open(network[0],"r")
+    if initWeights:
+        print("Loading model/weights from path!")
+        assert initModel != None
+        jsonFILE = open(initModel,"r")
         loadedModel = jsonFILE.read()
         jsonFILE.close()
         model=model_from_json(loadedModel)
-        model.load_weights(network[1])
+        model.load_weights(initWeights)
     else:
-        print("Error: model and weights not loaded")
-        sys.exit(1)
+        # Train the network
+        history = model.fit(TrainGenerator,
+            steps_per_epoch= epochSteps,
+            epochs=numEpochs,
+            validation_data=ValidationGenerator,
+            use_multiprocessing=True,
+            callbacks=callbacks_list,
+            max_queue_size=nCPU,
+            workers=nCPU,
+            )
 
-    x,y = TestGenerator.__getitem__(0)
-    predictions = model.predict(x)
+        # Write the network
+        if(network != None):
+            ##serialize model to JSON
+            model_json = model.to_json()
+            with open(network[0], "w") as json_file:
+                json_file.write(model_json)
 
-    history.history['loss'] = np.array(history.history['loss'])
-    history.history['val_loss'] = np.array(history.history['val_loss'])
-    history.history['predictions'] = np.array(predictions)
-    history.history['Y_test'] = np.array(y)
-    history.history['name'] = ModelName
+        # Load json and create model
+        if(network != None):
+            jsonFILE = open(network[0],"r")
+            loadedModel = jsonFILE.read()
+            jsonFILE.close()
+            model=model_from_json(loadedModel)
+            model.load_weights(network[1])
+        else:
+            print("Error: model and weights not loaded")
+            sys.exit(1)
+
+    # Metrics to track the different accuracies.
+    test_acc_clean = tf.metrics.CategoricalAccuracy()
+    test_acc_fgsm = tf.metrics.CategoricalAccuracy()
+    test_acc_pgd = tf.metrics.CategoricalAccuracy()
+    test_acc_spsa = tf.metrics.CategoricalAccuracy()
+
+    x_test,y_test = TestGenerator.__getitem__(0)
+    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
+
+    # predict on clean test examples
+    print("\nPredicting on clean examples...")
+    y_pred = model.predict(x_test)
+    test_acc_clean(y_test, y_pred)
+
+    # predict on adversarial test examples using FGSM
+    print("Attacking using Fast Gradient Sign Method...")
+    fgsm_params = {'eps': 1.0,
+            'norm': np.inf,
+            'clip_min': 0.0,
+            'clip_max': 1.0}
+    x_fgsm = fast_gradient_method(model, x_test, **fgsm_params)
+    print("Predicting on FGSM examples...")
+    y_pred_fgsm = model.predict(x_fgsm)
+    test_acc_fgsm(y_test, y_pred_fgsm)
+
+    ## predict on adversarial test examples using PGD
+    #print("Attacking using Projected Gradient Descent...")
+    #pgd_params = {'eps': 1.0,
+    #        'eps_iter': 1.0,
+    #        'nb_iter': 40,
+    #        'norm': np.inf,
+    #        'clip_min': 0.0,
+    #        'clip_max': 1.0,
+    #        'sanity_checks': False}
+    #x_pgd = projected_gradient_descent(model, x_test, **pgd_params)
+    #print("Predicting on PGD examples...")
+    #y_pred_pgd = model.predict(x_pgd)
+    #test_acc_pgd(y_test, y_pred_pgd)
+
+    ## predict on adversarial test examples using SPSA
+    #print("Attacking using SPSA...")
+    #spsa_params = {'eps': 1.0,
+    #        'nb_iter': 40,
+    #        'clip_min': 0.0,
+    #        'clip_max': 1.0}
+    #x_spsa = spsa(model, x=x_test, **spsa_params)
+    #print("Predicting on adversarial examples...")
+    #y_pred_spsa = model.predict(x_spsa)
+    #test_acc_spsa(y_test, y_pred_spsa)
+
+    print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean.result() * 100))
+    print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm.result() * 100))
+    #print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd.result() * 100))
+    #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
 
     print("results written to: ",resultsFile)
-    pickle.dump(history.history, open( resultsFile, "wb" ))
-
-    return None
-
-#-------------------------------------------------------------------------------------------
-
-def runModelsAdv(ModelFuncPointer,
-            ModelName,
-            NetworkDir,
-            projectDir,
-            TrainGenerator,
-            ValidationGenerator,
-            TestGenerator,
-            resultsFile=None,
-            numEpochs=10,
-            epochSteps=100,
-            validationSteps=1,
-            init=None,
-            network=None,
-            nCPU = 1,
-            gpuID = 0,
-            learningRate=0.001
-            ):
-
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpuID)
-
-    # Force TensorFlow to use single thread to improve reproducibility
-    config = tf.ConfigProto(intra_op_parallelism_threads=1,
-                          inter_op_parallelism_threads=1)
-
-    sess = tf.Session(config=config)
-    keras.backend.set_session(sess)
-
-    if(resultsFile == None):
-        resultsFilename = os.path.basename(trainFile)[:-4] + ".p"
-        resultsFile = os.path.join("./results/",resultsFilename)
-
-    # Read all test data into memory
-    x_train, y_train = TrainGenerator.__getitem__(0)
-    x_test, y_test = TestGenerator.__getitem__(0)
-
-    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
-    nb_classes = y_test.shape[1]
-
-    ## Label smoothing (Not really sure why we'd want to do this [changes 0.0,1.0 to 0.05,0.95))
-    #label_smoothing = 0.1
-    #y_train -= label_smoothing * (y_train - 1. / nb_classes)
-
-    # Define Keras model
-    model = ModelFuncPointer(img_rows=img_rows, img_cols=img_cols,
-                    channels=None, nb_filters=None,
-                    nb_classes=nb_classes)
-    print("Defined Keras model.")
-
-    # To be able to call the model in the custom loss, we need to call it once
-    model(model.input)
-
-    # Load weights if given
-    if(init != None):
-        model.load_weights(init)
-
-    # Initialize the Fast Gradient Sign Method (FGSM) attack object
-    wrap = KerasModelWrapper(model)
-    attack = FastGradientMethod(wrap, sess=sess)
-    #attack = LBFGS(wrap, sess=sess)
-    #attack = SPSA(wrap, sess=sess)
-    #attack = SaliencyMapMethod(wrap, sess=sess)
-    attack_params = {'eps': 1.,
-                 'clip_min': 0.,
-                 'clip_max': 1.}
-    #attack_params = {'batch_size': 64,
-    #            'clip_min': 0.,
-    #            'clip_max': 1.}
-    #attack_params = {'theta': 1., 'gamma': 0.1,
-    #             'clip_min': 0., 'clip_max': 1.,
-    #             'y_target': None}
-
-    adv_acc_metric = get_adversarial_acc_metric(model, attack, attack_params)
-    model.compile(
-      optimizer=keras.optimizers.Adam(learningRate),
-      loss='categorical_crossentropy',
-      metrics=['accuracy', adv_acc_metric]
-    )
-
-    # Early stopping and saving the best weights
-    callbacks_list = [
-            keras.callbacks.EarlyStopping(
-                verbose=1,
-                min_delta=0.01,
-                patience=25),
-            keras.callbacks.ModelCheckpoint(
-                filepath=network[1],
-                save_best_only=True)
-            ]
-
-    history = model.fit_generator(TrainGenerator,
-        steps_per_epoch= epochSteps,
-        epochs=numEpochs,
-        validation_data=ValidationGenerator,
-        validation_steps=validationSteps,
-        use_multiprocessing=True,
-        callbacks=callbacks_list,
-        max_queue_size=nCPU,
-        workers=nCPU,
-        )
-
+    history.history['loss'] = np.array(history.history['loss'])
+    history.history['val_loss'] = np.array(history.history['val_loss'])
+    history.history['predictions'] = np.array(y_pred)
+    history.history['predictions_fgsm'] = np.array(y_pred_fgsm)
+    #history.history['predictions_pgd'] = np.array(y_pred_pgd)
+    history.history['Y_test'] = np.array(y_test)
+    history.history['name'] = ModelName
+    pickle.dump(history.history, open(resultsFile, "wb" ))
 
     # Save genotype images for testset
     print("\nGenerating adversarial examples and writing images/predicions...")
-    imageDir = os.path.join(projectDir,"test_images")
+    imageDir = os.path.join(ProjectDir,"test_images")
     if not os.path.exists(imageDir):
         os.makedirs(imageDir)
     for i in range(x_test.shape[0]):
-        org_predFILE = os.path.join(imageDir,"examp{}_org_pred.txt".format(i))
-        adv_predFILE = os.path.join(imageDir,"examp{}_adv_pred.txt".format(i))
-        org_gmFILE = os.path.join(imageDir,"examp{}_org.npy".format(i))
-        adv_gmFILE = os.path.join(imageDir,"examp{}_adv.npy".format(i))
-        org_imageFILE = os.path.join(imageDir,"examp{}_org.png".format(i))
-        adv_imageFILE = os.path.join(imageDir,"examp{}_adv.png".format(i))
-        delta_imageFILE = os.path.join(imageDir,"examp{}_delta.png".format(i))
-        org_example = x_test[i].reshape((1, x_test.shape[1], x_test.shape[2]))
-        adv_example = attack.generate_np(org_example, **attack_params)
-        pred_org = model.predict(org_example)
-        pred_adv = model.predict(adv_example)
-        np.savetxt(org_predFILE, pred_org)
-        np.savetxt(adv_predFILE, pred_adv)
-        org_image = org_example.reshape((img_rows, img_cols))
-        adv_image = adv_example.reshape((img_rows, img_cols))
-        delta_image = org_image - adv_image
-        np.save(org_gmFILE, org_example)
-        np.save(adv_gmFILE, adv_example)
-        plt.imsave(org_imageFILE, org_image)
-        plt.imsave(adv_imageFILE, adv_image)
-        plt.imsave(delta_imageFILE, delta_image)
+        clean_gmFILE = os.path.join(imageDir,"examp{}_clean.npy".format(i))
+        fgsm_gmFILE = os.path.join(imageDir,"examp{}_fgsm.npy".format(i))
+        #pdg_gmFILE = os.path.join(imageDir,"examp{}_pgd.npy".format(i))
+        clean_imageFILE = os.path.join(imageDir,"examp{}_clean.png".format(i))
+        fgsm_imageFILE = os.path.join(imageDir,"examp{}_fgsm.png".format(i))
+        fgsm_delta_imageFILE = os.path.join(imageDir,"examp{}_fgsm_delta.png".format(i))
+        #pgd_imageFILE = os.path.join(imageDir,"examp{}_pgd.png".format(i))
+        #pgd_delta_imageFILE = os.path.join(imageDir,"examp{}_pgd_delta.png".format(i))
+        clean_image = x_test[i]
+        fgsm_image = x_fgsm[i]
+        fgsm_delta_image = clean_image - fgsm_image
+        #pgd_image = x_pgd[i]
+        #pgd_delta_image = clean_image - pgd_image
+        plt.imsave(clean_imageFILE, clean_image)
+        plt.imsave(fgsm_imageFILE, fgsm_image)
+        plt.imsave(fgsm_delta_imageFILE, fgsm_delta_image)
+        #plt.imsave(pgd_imageFILE, pgd_image)
+        #plt.imsave(pgd_delta_imageFILE, pgd_delta_image)
         progress_bar(i/float(x_test.shape[0]))
+    print("\n")
 
-    sys.exit()
-    # Evaluate the accuracy on legitimate and adversarial test examples
-    report = AccuracyReport()
-    _, acc, adv_acc = model.evaluate(x_test, y_test,
-                                   batch_size=64,
-                                   verbose=0)
-    report.clean_train_clean_eval = acc
-    report.clean_train_adv_eval = adv_acc
-    outLog = resultsFile.replace(".p","_log.txt")
-    with open(outLog, "w") as fOUT:
-        fOUT.write("Before adversarial training\n")
-        fOUT.write("===========================\n")
-        fOUT.write("Test accuracy on legitimate examples: %0.4f\n" % acc)
-        fOUT.write("Test accuracy on adversarial examples: %0.4f\n" % adv_acc)
-    print('\nTest accuracy on legitimate examples: %0.4f' % acc)
-    print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
-
-    # Write the network
-    if(network != None):
-        ##serialize model to JSON
-        model_json = model.to_json()
-        with open(network[0], "w") as json_file:
-            json_file.write(model_json)
-
-    # Load json and create model
-    if(network != None):
-        jsonFILE = open(network[0],"r")
-        loadedModel = jsonFILE.read()
-        jsonFILE.close()
-        model=model_from_json(loadedModel)
-        model.load_weights(network[1])
-    else:
-        print("Error: model and weights not loaded")
-        sys.exit(1)
-
-    predictions = model.predict(x_test)
-
-    history.history['loss'] = np.array(history.history['loss'])
-    history.history['val_loss'] = np.array(history.history['val_loss'])
-    history.history['predictions'] = np.array(predictions)
-    history.history['Y_test'] = np.array(y_test)
-    history.history['name'] = ModelName
-
-    print("results written to: ",resultsFile)
-    pickle.dump(history.history, open( resultsFile, "wb" ))
+    #return model, y_pred, y_pred_fgsm, y_pred_pgd, fgsm_params
 
 
+#def adversarial_training_tf2(ModelFuncPointer,
+#            ModelName,
+#            NetworkDir,
+#            ProjectDir,
+#            TrainGenerator,
+#            ValidationGenerator,
+#            TestGenerator,
+#            model=None,
+#            y_pred=None,
+#            y_pred_fgsm=None,
+#            y_pred_pgd=None,
+#            fgsm_params=None,
+#            TrainParams=None,
+#            ValiParams=None,
+#            resultsFile=None,
+#            numEpochs=10,
+#            epochSteps=100,
+#            validationSteps=1,
+#            initModel=None,
+#            initWeights=None,
+#            network=None,
+#            nCPU = 1,
+#            gpuID = 0,
+#            learningRate=0.001):
+#
+#
+#    os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
+#
+#    ## The following code block appears necessary for running with tf2 and cudnn
+#    from tensorflow.compat.v1 import ConfigProto
+#    from tensorflow.compat.v1 import Session
+#    config = ConfigProto()
+#    config.gpu_options.allow_growth = True
+#    sess = Session(config=config)
+#    ###
 
     ########## Adversarial training #############
-    print("Repeating the process, using adversarial training")
-    # Redefine Keras model
-    model_2 = ModelFuncPointer(img_rows=img_rows, img_cols=img_cols,
-                    channels=None, nb_filters=None,
-                    nb_classes=nb_classes)
-    model_2(model_2.input)
-    wrap_2 = KerasModelWrapper(model_2)
-    attack_2 = FastGradientMethod(wrap_2, sess=sess)
-    #attack_2 = LBFGS(wrap_2, sess=sess)
+    ## similar objects as above except these have the extension _2
+    print("\nRepeating the process, training training on adversarial examples")
+    # define the adversarial train generator
+    adv_train_params = copy.deepcopy(TrainParams)
+    adv_train_params["model"] = model
+    adv_train_params["attackName"] = "fgsm"
+    adv_train_params["attackParams"] = fgsm_params
+    adv_train_params["attackFraction"] = 0.5
+    adv_trainGen = SequenceBatchGenerator(**adv_train_params)
 
+    # define the adversarial vali generator
+    adv_vali_params = copy.deepcopy(ValiParams)
+    adv_vali_params["model"] = model
+    adv_vali_params["attackName"] = "fgsm"
+    adv_vali_params["attackParams"] = fgsm_params
+    adv_vali_params["attackFraction"] = 0.5
+    adv_valiGen = SequenceBatchGenerator(**adv_vali_params)
 
-    # Use a loss function based on legitimate and adversarial examples
-    adv_loss_2 = get_adversarial_loss(model_2, attack_2, attack_params)
-    adv_acc_metric_2 = get_adversarial_acc_metric(model_2, attack_2, attack_params)
+    ## call adv_trainGen
+    print("Attacking the training set...")
+    x_train,y_train = adv_trainGen.__getitem__(0)
+    print("Attacking the validation set...")
+    x_vali,y_vali = adv_valiGen.__getitem__(0)
 
-    model_2.compile(
-      optimizer=keras.optimizers.Adam(learningRate),
-      loss=adv_loss_2,
-      metrics=['accuracy', adv_acc_metric_2]
-    )
+    ## define the new model
+    model_2 = ModelFuncPointer(x_train,y_train)
 
-    # Early stopping and saving the best weights
+    ## Early stopping and saving the best weights
     callbacks_list_2 = [
-            keras.callbacks.EarlyStopping(
+            EarlyStopping(
+                monitor='val_loss',
                 verbose=1,
                 min_delta=0.01,
-                patience=25),
-            keras.callbacks.ModelCheckpoint(
+                patience=10),
+            ModelCheckpoint(
                 filepath=network[1].replace(".h5","_2.h5"),
+                monitor='val_loss',
                 save_best_only=True)
             ]
 
-    # Train model
-    history_2 = model_2.fit_generator(TrainGenerator,
+    # Train the network
+    ## CUDA initialization errors when trying to run this with use_multiprocessing=True
+    history_2 = model_2.fit(x=adv_trainGen,
         steps_per_epoch= epochSteps,
         epochs=numEpochs,
-        validation_data=ValidationGenerator,
-        validation_steps=validationSteps,
-        use_multiprocessing=True,
-        callbacks=callbacks_list_2,
-        max_queue_size=nCPU,
-        workers=nCPU,
-        )
-
-    # Evaluate the accuracy on legitimate and adversarial test examples
-    _, acc, adv_acc = model_2.evaluate(x_test, y_test,
-                                     batch_size=64,
-                                     verbose=0)
-
-    report.adv_train_clean_eval = acc
-    report.adv_train_adv_eval = adv_acc
-    with open(outLog, "a") as fOUT:
-        fOUT.write("\nAfter adversarial training\n")
-        fOUT.write("===========================\n")
-        fOUT.write("Test accuracy on legitimate examples: %0.4f\n" % acc)
-        fOUT.write("Test accuracy on adversarial examples: %0.4f\n" % adv_acc)
-    print('Test accuracy on legitimate examples: %0.4f' % acc)
-    print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
-
+        validation_data=adv_valiGen,
+        callbacks=callbacks_list_2)
 
     # Write the network
     if(network != None):
@@ -644,499 +589,61 @@ def runModelsAdv(ModelFuncPointer,
         print("Error: model_2 and weights_2 not loaded")
         sys.exit(1)
 
-    predictions_2 = model_2.predict(x_test)
+    # Metrics to track the different accuracies.
+    test_acc_clean_2 = tf.metrics.CategoricalAccuracy()
+    test_acc_fgsm_2 = tf.metrics.CategoricalAccuracy()
+    #test_acc_pgd_2 = tf.metrics.CategoricalAccuracy()
+    #test_acc_spsa_2 = tf.metrics.CategoricalAccuracy()
 
+    # predict on clean test examples
+    print("Predicting on clean examples...")
+    y_pred_2 = model_2.predict(x_test)
+    test_acc_clean_2(y_test, y_pred_2)
+
+    # predict on adversarial test examples using FGSM
+    print("Predicting on FGSM examples...")
+    y_pred_fgsm_2 = model_2.predict(x_fgsm)
+    test_acc_fgsm_2(y_test, y_pred_fgsm_2)
+
+    ## predict on adversarial test examples using PGD
+    #print("Predicting on PGD examples...")
+    #y_pred_pgd_2 = model_2.predict(x_pgd)
+    #test_acc_pgd_2(y_test, y_pred_pgd_2)
+
+    ## predict on adversarial test examples using SPSA
+    #print("Predicting on adversarial examples...")
+    #y_pred_spsa_2= model_2.predict(x_spsa)
+    #test_acc_spsa_2(y_test, y_pred_spsa_2)
+
+    print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean_2.result() * 100))
+    print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm_2.result() * 100))
+    #print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd_2.result() * 100))
+    #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
+    outLog = resultsFile.replace(".p","_log.txt")
+    with open(outLog, "w") as fOUT:
+        fOUT.write("Before adversarial training\n")
+        fOUT.write("===========================\n")
+        fOUT.write('test acc on clean examples (%): {:.3f}\n'.format(test_acc_clean.result() * 100))
+        fOUT.write('test acc on FGSM adversarial examples (%): {:.3f}\n'.format(test_acc_fgsm.result() * 100))
+        #fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd.result() * 100))
+        fOUT.write("After adversarial training\n")
+        fOUT.write("===========================\n")
+        fOUT.write('test acc on clean examples (%): {:.3f}\n'.format(test_acc_clean_2.result() * 100))
+        fOUT.write('test acc on FGSM adversarial examples (%): {:.3f}\n'.format(test_acc_fgsm_2.result() * 100))
+        #fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd_2.result() * 100))
+
+
+    print("results_2 written to: ",resultsFile.replace(".p","_2.p"))
     history_2.history['loss'] = np.array(history_2.history['loss'])
     history_2.history['val_loss'] = np.array(history_2.history['val_loss'])
-    history_2.history['predictions'] = np.array(predictions_2)
+    history_2.history['predictions'] = np.array(y_pred_2)
+    history_2.history['predictions_fgsm'] = np.array(y_pred_fgsm_2)
+    #history_2.history['predictions_pgd'] = np.array(y_pred_pgd_2)
     history_2.history['Y_test'] = np.array(y_test)
-    history_2.history['name'] = ModelName+"_adversarialTrained"
-
-    print("results written to: ",resultsFile.replace(".p","_2.p"))
+    history_2.history['name'] = ModelName
     pickle.dump(history_2.history, open( resultsFile.replace(".p","_2.p"), "wb" ))
 
-    reportFile = os.path.join(NetworkDir, "testReport.p")
-    print("report written to: ",reportFile)
-    pickle.dump(report, open( reportFile, "wb" ))
-
-    return None
-
-#-------------------------------------------------------------------------------------------
-
-def runModelsJSMA(ModelFuncPointer,
-            ModelName,
-            NetworkDir,
-            projectDir,
-            TrainGenerator,
-            ValidationGenerator,
-            TestGenerator,
-            resultsFile=None,
-            numEpochs=10,
-            epochSteps=100,
-            validationSteps=1,
-            init=None,
-            network=None,
-            nCPU = 1,
-            gpuID = 0,
-            learningRate=0.001
-            ):
-
-
-    viz_enabled = True
-    nb_epochs = 10
-    batch_size = 16
-    learning_rate = .001
-    source_samples = 10
-
-    report = AccuracyReport()
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpuID)
-
-    # Force TensorFlow to use single thread to improve reproducibility
-    config = tf.ConfigProto(intra_op_parallelism_threads=1,
-                          inter_op_parallelism_threads=1)
-
-    sess = tf.Session(config=config)
-    keras.backend.set_session(sess)
-
-    if(resultsFile == None):
-        resultsFilename = os.path.basename(trainFile)[:-4] + ".p"
-        resultsFile = os.path.join("./results/",resultsFilename)
-
-    # Read all test data into memory
-    x_train, y_train = TrainGenerator.__getitem__(0)
-    x_test, y_test = TestGenerator.__getitem__(0)
-
-    x_train = x_train[:,:x_train.shape[2],:]
-    x_test = x_test[:,:x_test.shape[2],:]
-
-
-    ## Issues with only 2 targets
-    x_train = np.reshape(x_train, (x_train.shape[0],x_train.shape[1],x_train.shape[2],1))
-    x_test = np.reshape(x_test, (x_test.shape[0],x_test.shape[1],x_test.shape[2],1))
-    #y_train = np.pad(y_train, ((0,0),(0,8)), "constant")
-    #y_test = np.pad(y_test, ((0,0),(0,8)), "constant")
-
-    print(x_train.shape, y_train.shape)
-    print(x_test.shape, y_test.shape)
-    print(x_test[0].shape, y_test[0].shape)
-    #sys.exit()
-
-    # Obtain Image Parameters
-    #img_rows, img_cols = x_test.shape[1], x_test.shape[2]
-    #nb_classes = y_test.shape[1]
-    img_rows, img_cols, nchannels = x_train.shape[1:4]
-    nb_classes = y_train.shape[1]
-    print(img_rows, img_cols, nchannels)
-    print(nb_classes)
-    #sys.exit()
-
-    # Define input TF placeholder
-    x = tf.placeholder(tf.float32, shape=(None, img_rows, img_cols,
-                                        nchannels))
-    #x = tf.placeholder(tf.float32, shape=(None, img_rows, img_cols))
-    y = tf.placeholder(tf.float32, shape=(None, nb_classes))
-    print(x.shape,y.shape)
-    #sys.exit()
-
-    nb_filters = 64
-    # Define TF model graph
-    model = ModelBasicCNN('model1', nb_classes, nb_filters)
-    print(model)
-    #sys.exit()
-    #model = ModelFuncPointer(img_rows=img_rows, img_cols=img_cols,
-    #                channels=None, nb_filters=None,
-    #                nb_classes=nb_classes)
-    preds = model.get_logits(x)
-    print(preds)
-    #sys.exit()
-
-
-    ## Not sure if better to use smoothing or no smoothing
-    loss = CrossEntropy(model, smoothing=0.1)
-    #loss = CrossEntropy(model)
-
-
-    print("Defined TensorFlow model graph.")
-    #sys.exit()
-    ###########################################################################
-    # Training the model using TensorFlow
-    ###########################################################################
-
-    # Train an MNIST model
-    train_params = {
-      'nb_epochs': nb_epochs,
-      'batch_size': batch_size,
-      'learning_rate': learning_rate
-    }
-    sess.run(tf.global_variables_initializer())
-    rng = np.random.RandomState([2017, 8, 30])
-    train(sess, loss, x_train, y_train, args=train_params, rng=rng)
-
-    #sys.exit()
-
-    # Evaluate the accuracy of the MNIST model on legitimate test examples
-    eval_params = {'batch_size': batch_size}
-    accuracy = model_eval(sess, x, y, preds, x_test, y_test, args=eval_params)
-    #assert x_test.shape[0] == test_end - test_start, x_test.shape
-    print('Test accuracy on legitimate test examples: {0}'.format(accuracy))
-    report.clean_train_clean_eval = accuracy
-
-    ###########################################################################
-    # Craft adversarial examples using the Jacobian-based saliency map approach
-    ###########################################################################
-    print('Crafting ' + str(source_samples) + ' * ' + str(nb_classes - 1) +
-        ' adversarial examples')
-
-    # Keep track of success (adversarial example classified in target)
-    results = np.zeros((nb_classes, source_samples), dtype='i')
-
-    # Rate of perturbed features for each test set example and target class
-    perturbations = np.zeros((nb_classes, source_samples), dtype='f')
-
-    # Initialize our array for grid visualization
-    grid_shape = (nb_classes, nb_classes, img_rows, img_cols)
-    grid_viz_data = np.zeros(grid_shape, dtype='f')
-
-    # Instantiate a SaliencyMapMethod attack object
-    jsma = SaliencyMapMethod(model, sess=sess)
-    jsma_params = {'theta': 1., 'gamma': 0.1,
-                 'clip_min': 0., 'clip_max': 1.,
-                 'y_target': None}
-
-    figure = None
-    # Loop over the samples we want to perturb into adversarial examples
-    for sample_ind in xrange(0, source_samples):
-        print('--------------------------------------')
-        print('Attacking input %i/%i' % (sample_ind + 1, source_samples))
-        sample = x_test[sample_ind:(sample_ind + 1)]
-        #print(sample)
-        #sys.exit()
-
-        # We want to find an adversarial example for each possible target class
-        # (i.e. all classes that differ from the label given in the dataset)
-        current_class = int(np.argmax(y_test[sample_ind]))
-        target_classes = other_classes(nb_classes, current_class)
-        #print(current_class, target_classes)
-        #sys.exit()
-
-
-        ## For the grid visualization, keep original images along the diagonal
-        #grid_viz_data[current_class, current_class, :, :, :] = np.reshape(
-        #    sample, (img_rows, img_cols, nchannels))
-
-        # Loop over all target classes
-        for target in target_classes:
-            print('Generating adv. example for target class %i' % target)
-
-            # This call runs the Jacobian-based saliency map approach
-            one_hot_target = np.zeros((1, nb_classes), dtype=np.float32)
-            one_hot_target[0, target] = 1
-            jsma_params['y_target'] = one_hot_target
-            adv_x = jsma.generate_np(sample, **jsma_params)
-
-            # Check if success was achieved
-            res = int(model_argmax(sess, x, preds, adv_x) == target)
-
-            # Compute number of modified features
-            adv_x_reshape = adv_x.reshape(-1)
-            test_in_reshape = x_test[sample_ind].reshape(-1)
-            nb_changed = np.where(adv_x_reshape != test_in_reshape)[0].shape[0]
-            percent_perturb = float(nb_changed) / adv_x.reshape(-1).shape[0]
-
-            # Display the original and adversarial images side-by-side
-            if viz_enabled:
-                orgFILE = os.path.join("/home/jadrion/projects/i-against-i/jsma/","sample%s_target%s_org.png"%(sample_ind,target))
-                advFILE = os.path.join("/home/jadrion/projects/i-against-i/jsma/","sample%s_target%s_adv.png"%(sample_ind,target))
-                difFILE = os.path.join("/home/jadrion/projects/i-against-i/jsma/","sample%s_target%s_dif.png"%(sample_ind,target))
-                #plt.imsave(orgFILE, np.reshape(sample, (img_rows, img_cols, nchannels)))
-                #plt.imsave(advFILE, np.reshape(adv_x, (img_rows, img_cols, nchannels)))
-                plt.imsave(orgFILE, np.reshape(sample, (img_rows, img_cols)))
-                plt.imsave(advFILE, np.reshape(adv_x, (img_rows, img_cols)))
-                plt.imsave(difFILE, np.reshape(adv_x, (img_rows, img_cols)) - np.reshape(sample, (img_rows, img_cols)))
-                #figure = pair_visual(
-                #  np.reshape(sample, (img_rows, img_cols, nchannels)),
-                #  np.reshape(adv_x, (img_rows, img_cols, nchannels)), figure)
-
-
-
-            results[target, sample_ind] = res
-            perturbations[target, sample_ind] = percent_perturb
-
-    print('--------------------------------------')
-    #print("results:", results)
-
-    # Compute the number of adversarial examples that were successfully found
-    nb_targets_tried = ((nb_classes - 1) * source_samples)
-    succ_rate = float(np.sum(results)) / nb_targets_tried
-    #print(np.sum(results), nb_targets_tried)
-    #sys.exit()
-    print('Avg. rate of successful adv. examples {0:.4f}'.format(succ_rate))
-    report.clean_train_adv_eval = 1. - succ_rate
-
-    # Compute the average distortion introduced by the algorithm
-    percent_perturbed = np.mean(perturbations)
-    print('Avg. rate of perturbed features {0:.4f}'.format(percent_perturbed))
-
-    # Compute the average distortion introduced for successful samples only
-    percent_perturb_succ = np.mean(perturbations * (results == 1))
-    print('Avg. rate of perturbed features for successful '
-        'adversarial examples {0:.4f}'.format(percent_perturb_succ))
-
-    # Close TF session
-    sess.close()
-
-
-
-
-
-
-
-
-
-
-
-
-
-    #img_rows, img_cols = x_test.shape[1], x_test.shape[2]
-    #nb_classes = y_test.shape[1]
-
-    ### Label smoothing (Not really sure why we'd want to do this [changes 0.0,1.0 to 0.05,0.95))
-    ##label_smoothing = 0.1
-    ##y_train -= label_smoothing * (y_train - 1. / nb_classes)
-
-    ## Define Keras model
-    #model = ModelFuncPointer(img_rows=img_rows, img_cols=img_cols,
-    #                channels=None, nb_filters=None,
-    #                nb_classes=nb_classes)
-    #print("Defined Keras model.")
-
-    ## To be able to call the model in the custom loss, we need to call it once
-    #model(model.input)
-
-    ## Load weights if given
-    #if(init != None):
-    #    model.load_weights(init)
-
-    ## Initialize the Fast Gradient Sign Method (FGSM) attack object
-    #wrap = KerasModelWrapper(model)
-    #attack = FastGradientMethod(wrap, sess=sess)
-    ##attack = LBFGS(wrap, sess=sess)
-    ##attack = SPSA(wrap, sess=sess)
-    ##attack = SaliencyMapMethod(wrap, sess=sess)
-    #attack_params = {'eps': 1.,
-    #             'clip_min': 0.,
-    #             'clip_max': 1.}
-    ##attack_params = {'batch_size': 64,
-    ##            'clip_min': 0.,
-    ##            'clip_max': 1.}
-    ##attack_params = {'theta': 1., 'gamma': 0.1,
-    ##             'clip_min': 0., 'clip_max': 1.,
-    ##             'y_target': None}
-
-    #adv_acc_metric = get_adversarial_acc_metric(model, attack, attack_params)
-    #model.compile(
-    #  optimizer=keras.optimizers.Adam(learningRate),
-    #  loss='categorical_crossentropy',
-    #  metrics=['accuracy', adv_acc_metric]
-    #)
-
-    ## Early stopping and saving the best weights
-    #callbacks_list = [
-    #        keras.callbacks.EarlyStopping(
-    #            verbose=1,
-    #            min_delta=0.01,
-    #            patience=25),
-    #        keras.callbacks.ModelCheckpoint(
-    #            filepath=network[1],
-    #            save_best_only=True)
-    #        ]
-
-    #history = model.fit_generator(TrainGenerator,
-    #    steps_per_epoch= epochSteps,
-    #    epochs=numEpochs,
-    #    validation_data=ValidationGenerator,
-    #    validation_steps=validationSteps,
-    #    use_multiprocessing=True,
-    #    callbacks=callbacks_list,
-    #    max_queue_size=nCPU,
-    #    workers=nCPU,
-    #    )
-
-
-    ## Save genotype images for testset
-    #print("\nGenerating adversarial examples and writing images/predicions...")
-    #imageDir = os.path.join(projectDir,"test_images")
-    #if not os.path.exists(imageDir):
-    #    os.makedirs(imageDir)
-    #for i in range(x_test.shape[0]):
-    #    org_predFILE = os.path.join(imageDir,"examp{}_org_pred.txt".format(i))
-    #    adv_predFILE = os.path.join(imageDir,"examp{}_adv_pred.txt".format(i))
-    #    org_gmFILE = os.path.join(imageDir,"examp{}_org.npy".format(i))
-    #    adv_gmFILE = os.path.join(imageDir,"examp{}_adv.npy".format(i))
-    #    org_imageFILE = os.path.join(imageDir,"examp{}_org.png".format(i))
-    #    adv_imageFILE = os.path.join(imageDir,"examp{}_adv.png".format(i))
-    #    delta_imageFILE = os.path.join(imageDir,"examp{}_delta.png".format(i))
-    #    org_example = x_test[i].reshape((1, x_test.shape[1], x_test.shape[2]))
-    #    adv_example = attack.generate_np(org_example, **attack_params)
-    #    pred_org = model.predict(org_example)
-    #    pred_adv = model.predict(adv_example)
-    #    np.savetxt(org_predFILE, pred_org)
-    #    np.savetxt(adv_predFILE, pred_adv)
-    #    org_image = org_example.reshape((img_rows, img_cols))
-    #    adv_image = adv_example.reshape((img_rows, img_cols))
-    #    delta_image = org_image - adv_image
-    #    np.save(org_gmFILE, org_example)
-    #    np.save(adv_gmFILE, adv_example)
-    #    plt.imsave(org_imageFILE, org_image)
-    #    plt.imsave(adv_imageFILE, adv_image)
-    #    plt.imsave(delta_imageFILE, delta_image)
-    #    progress_bar(i/float(x_test.shape[0]))
-
-    #print("completed_1")
-    #sys.exit()
-
-    ## Evaluate the accuracy on legitimate and adversarial test examples
-    #report = AccuracyReport()
-    #_, acc, adv_acc = model.evaluate(x_test, y_test,
-    #                               batch_size=64,
-    #                               verbose=0)
-    #report.clean_train_clean_eval = acc
-    #report.clean_train_adv_eval = adv_acc
-    #outLog = resultsFile.replace(".p","_log.txt")
-    #with open(outLog, "w") as fOUT:
-    #    fOUT.write("Before adversarial training\n")
-    #    fOUT.write("===========================\n")
-    #    fOUT.write("Test accuracy on legitimate examples: %0.4f\n" % acc)
-    #    fOUT.write("Test accuracy on adversarial examples: %0.4f\n" % adv_acc)
-    #print('\nTest accuracy on legitimate examples: %0.4f' % acc)
-    #print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
-
-    ## Write the network
-    #if(network != None):
-    #    ##serialize model to JSON
-    #    model_json = model.to_json()
-    #    with open(network[0], "w") as json_file:
-    #        json_file.write(model_json)
-
-    ## Load json and create model
-    #if(network != None):
-    #    jsonFILE = open(network[0],"r")
-    #    loadedModel = jsonFILE.read()
-    #    jsonFILE.close()
-    #    model=model_from_json(loadedModel)
-    #    model.load_weights(network[1])
-    #else:
-    #    print("Error: model and weights not loaded")
-    #    sys.exit(1)
-
-    #predictions = model.predict(x_test)
-
-    #history.history['loss'] = np.array(history.history['loss'])
-    #history.history['val_loss'] = np.array(history.history['val_loss'])
-    #history.history['predictions'] = np.array(predictions)
-    #history.history['Y_test'] = np.array(y_test)
-    #history.history['name'] = ModelName
-
-    #print("results written to: ",resultsFile)
-    #pickle.dump(history.history, open( resultsFile, "wb" ))
-
-
-
-    ########### Adversarial training #############
-    #print("Repeating the process, using adversarial training")
-    ## Redefine Keras model
-    #model_2 = ModelFuncPointer(img_rows=img_rows, img_cols=img_cols,
-    #                channels=None, nb_filters=None,
-    #                nb_classes=nb_classes)
-    #model_2(model_2.input)
-    #wrap_2 = KerasModelWrapper(model_2)
-    #attack_2 = FastGradientMethod(wrap_2, sess=sess)
-    ##attack_2 = LBFGS(wrap_2, sess=sess)
-
-
-    ## Use a loss function based on legitimate and adversarial examples
-    #adv_loss_2 = get_adversarial_loss(model_2, attack_2, attack_params)
-    #adv_acc_metric_2 = get_adversarial_acc_metric(model_2, attack_2, attack_params)
-
-    #model_2.compile(
-    #  optimizer=keras.optimizers.Adam(learningRate),
-    #  loss=adv_loss_2,
-    #  metrics=['accuracy', adv_acc_metric_2]
-    #)
-
-    ## Early stopping and saving the best weights
-    #callbacks_list_2 = [
-    #        keras.callbacks.EarlyStopping(
-    #            verbose=1,
-    #            min_delta=0.01,
-    #            patience=25),
-    #        keras.callbacks.ModelCheckpoint(
-    #            filepath=network[1].replace(".h5","_2.h5"),
-    #            save_best_only=True)
-    #        ]
-
-    ## Train model
-    #history_2 = model_2.fit_generator(TrainGenerator,
-    #    steps_per_epoch= epochSteps,
-    #    epochs=numEpochs,
-    #    validation_data=ValidationGenerator,
-    #    validation_steps=validationSteps,
-    #    use_multiprocessing=True,
-    #    callbacks=callbacks_list_2,
-    #    max_queue_size=nCPU,
-    #    workers=nCPU,
-    #    )
-
-    ## Evaluate the accuracy on legitimate and adversarial test examples
-    #_, acc, adv_acc = model_2.evaluate(x_test, y_test,
-    #                                 batch_size=64,
-    #                                 verbose=0)
-
-    #report.adv_train_clean_eval = acc
-    #report.adv_train_adv_eval = adv_acc
-    #with open(outLog, "a") as fOUT:
-    #    fOUT.write("\nAfter adversarial training\n")
-    #    fOUT.write("===========================\n")
-    #    fOUT.write("Test accuracy on legitimate examples: %0.4f\n" % acc)
-    #    fOUT.write("Test accuracy on adversarial examples: %0.4f\n" % adv_acc)
-    #print('Test accuracy on legitimate examples: %0.4f' % acc)
-    #print('Test accuracy on adversarial examples: %0.4f\n' % adv_acc)
-
-
-    ## Write the network
-    #if(network != None):
-    #    ##serialize model_2 to JSON
-    #    model_json_2 = model_2.to_json()
-    #    with open(network[0].replace(".json","_2.json"), "w") as json_file:
-    #        json_file.write(model_json_2)
-
-    ## Load json and create model
-    #if(network != None):
-    #    jsonFILE = open(network[0].replace(".json","_2.json"),"r")
-    #    loadedModel_2 = jsonFILE.read()
-    #    jsonFILE.close()
-    #    model_2=model_from_json(loadedModel_2)
-    #    model_2.load_weights(network[1].replace(".h5","_2.h5"))
-    #else:
-    #    print("Error: model_2 and weights_2 not loaded")
-    #    sys.exit(1)
-
-    #predictions_2 = model_2.predict(x_test)
-
-    #history_2.history['loss'] = np.array(history_2.history['loss'])
-    #history_2.history['val_loss'] = np.array(history_2.history['val_loss'])
-    #history_2.history['predictions'] = np.array(predictions_2)
-    #history_2.history['Y_test'] = np.array(y_test)
-    #history_2.history['name'] = ModelName+"_adversarialTrained"
-
-    #print("results written to: ",resultsFile.replace(".p","_2.p"))
-    #pickle.dump(history_2.history, open( resultsFile.replace(".p","_2.p"), "wb" ))
-
-    #reportFile = os.path.join(NetworkDir, "testReport.p")
-    #print("report written to: ",reportFile)
-    #pickle.dump(report, open( reportFile, "wb" ))
-
-    #return None
+    return
 
 #-------------------------------------------------------------------------------------------
 
@@ -1263,41 +770,6 @@ def progress_bar(percent, barLen = 50):
             progress += " "
     sys.stdout.write("[ %s ] %.2f%%" % (progress, percent * 100))
     sys.stdout.flush()
-
-#-------------------------------------------------------------------------------------------
-
-def get_adversarial_acc_metric(model, attack, attack_params):
-  def adv_acc(y, _):
-    # Generate adversarial examples
-    x_adv = attack.generate(model.input, **attack_params)
-    # Consider the attack to be constant
-    x_adv = tf.stop_gradient(x_adv)
-
-    # Accuracy on the adversarial examples
-    preds_adv = model(x_adv)
-    return keras.metrics.categorical_accuracy(y, preds_adv)
-
-  return adv_acc
-
-#-------------------------------------------------------------------------------------------
-
-def get_adversarial_loss(model, attack, attack_params):
-  def adv_loss(y, preds):
-    # Cross-entropy on the legitimate examples
-    cross_ent = keras.losses.categorical_crossentropy(y, preds)
-
-    # Generate adversarial examples
-    x_adv = attack.generate(model.input, **attack_params)
-    # Consider the attack to be constant
-    x_adv = tf.stop_gradient(x_adv)
-
-    # Cross-entropy on the adversarial examples
-    preds_adv = model(x_adv)
-    cross_ent_adv = keras.losses.categorical_crossentropy(y, preds_adv)
-
-    return 0.5 * cross_ent + 0.5 * cross_ent_adv
-
-  return adv_loss
 
 #-------------------------------------------------------------------------------------------
 

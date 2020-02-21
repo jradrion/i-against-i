@@ -2,3 +2,10 @@ msprime>=0.7.4
 scikit-learn>=0.22.1
 matplotlib>=3.1.3
 scikit-allel>=1.2.1
+cleverhans==3.0.1
+foolbox==3.0.0b1
+eagerpy>=0.25.2
+easydict>=1.9
+Pillow>=7.0.0
+tensorflow-datasets>=2.0.0
+six>=1.14.0

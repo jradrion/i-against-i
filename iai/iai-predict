@@ -26,7 +26,7 @@ def main():
     if args.seed:
         random.seed(args.seed)
         np.random.seed(args.seed)
-        set_random_seed(args.seed)
+        tf.random.set_seed(args.seed)
     
     ### Shuffle files around
     ## rename Dir_B sfs.pdf
