@@ -338,6 +338,18 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         resultsFilename = os.path.basename(trainFile)[:-4] + ".p"
         resultsFile = os.path.join("./results/",resultsFilename)
 
+    # Store original batch_size for train and vali sets and total numReps
+    og_train_bs = TrainParams["batchSize"]
+    tmpDir = TrainParams['treesDirectory']
+    infoP = pickle.load(open(os.path.join(tmpDir,"info.p"),"rb"))
+    og_train_numReps = infoP["numReps"]
+
+    og_vali_bs = ValiParams["batchSize"]
+    tmpDir = ValiParams['treesDirectory']
+    infoP = pickle.load(open(os.path.join(tmpDir,"info.p"),"rb"))
+    og_vali_numReps = infoP["numReps"]
+
+    # Test generator
     x,y = TrainGenerator.__getitem__(0)
     model = ModelFuncPointer(x,y)
 
@@ -486,29 +498,50 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
 
     ########## Adversarial training #############
+    tf.keras.backend.clear_session()
     ## similar objects as above except these have the extension _2
     print("\nRepeating the process, training training on adversarial examples")
-    # define the adversarial train generator
+    # define the attack generator for training examples
     adv_train_params = copy.deepcopy(TrainParams)
     adv_train_params["model"] = model
     adv_train_params["attackName"] = "fgsm"
     adv_train_params["attackParams"] = fgsm_params
-    adv_train_params["attackFraction"] = 0.5
-    adv_trainGen = SequenceBatchGenerator(**adv_train_params)
+    adv_train_params["attackFraction"] = 1.0
+    adv_train_params["writeAttacks"] = True
+    adv_train_params["batchSize"] = 1000
+    attackGen_train = SequenceBatchGenerator(**adv_train_params)
+    # attack the entire training set and write adversarial examples to disk
+    print("Attacking the training set...")
+    num_batches = int(np.ceil(og_train_numReps/float(adv_train_params["batchSize"])))
+    for i in range(num_batches):
+        x_train,y_train = attackGen_train.__getitem__(i)
+        progress_bar(i/float(num_batches))
 
-    # define the adversarial vali generator
+    # define the attack generator for validation examples
     adv_vali_params = copy.deepcopy(ValiParams)
     adv_vali_params["model"] = model
     adv_vali_params["attackName"] = "fgsm"
     adv_vali_params["attackParams"] = fgsm_params
-    adv_vali_params["attackFraction"] = 0.5
-    adv_valiGen = SequenceBatchGenerator(**adv_vali_params)
+    adv_vali_params["attackFraction"] = 1.0
+    adv_vali_params["writeAttacks"] = True
+    adv_vali_params["batchSize"] = 1000
+    attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
+    # attack the entire validation set and write adversarial examples to disk
+    print("\nAttacking the validation set...")
+    num_batches = int(np.ceil(og_vali_numReps/float(adv_vali_params["batchSize"])))
+    for i in range(num_batches):
+        x_vali,y_vali = attackGen_vali.__getitem__(i)
+        progress_bar(i/float(num_batches))
 
-    ## call adv_trainGen
-    print("Attacking the training set...")
-    x_train,y_train = adv_trainGen.__getitem__(0)
-    print("Attacking the validation set...")
-    x_vali,y_vali = adv_valiGen.__getitem__(0)
+    # reset generator parameters in preperation for model fit
+    adv_train_params["attackFraction"] = 0.5
+    adv_train_params["writeAttacks"] = False
+    adv_train_params["batchSize"] = og_train_bs
+    attackGen_train = SequenceBatchGenerator(**adv_train_params)
+    adv_vali_params["attackFraction"] = 0.5
+    adv_vali_params["writeAttacks"] = False
+    adv_vali_params["batchSize"] = og_vali_bs
+    attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
 
     ## define the new model
     model_2 = ModelFuncPointer(x_train,y_train)
@@ -528,11 +561,14 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     # Train the network
     ## CUDA initialization errors when trying to run this with use_multiprocessing=True
-    history_2 = model_2.fit(x=adv_trainGen,
+    history_2 = model_2.fit(x=attackGen_train,
         steps_per_epoch= epochSteps,
         epochs=numEpochs,
-        validation_data=adv_valiGen,
-        callbacks=callbacks_list_2)
+        validation_data=attackGen_vali,
+        callbacks=callbacks_list_2,
+        use_multiprocessing=True,
+        max_queue_size=nCPU,
+        workers=nCPU)
 
     # Write the network
     if(network != None):

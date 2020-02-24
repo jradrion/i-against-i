@@ -32,6 +32,7 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
             attackName = None,
             attackParams = None,
             attackFraction = 0.0,
+            writeAttacks = False,
             targetNormalization = 'zscore',
             batchSize=64,
             maxLen=None,
@@ -56,6 +57,7 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         self.attackName = attackName
         self.attackParams = attackParams
         self.attackFraction = attackFraction
+        self.writeAttacks = writeAttacks
         self.targetNormalization = targetNormalization
         infoFilename = os.path.join(self.treesDirectory,"info.p")
         self.infoDir = pickle.load(open(infoFilename,"rb"))
@@ -96,14 +98,14 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         smallest = np.argmin(v[0].sum(axis=1))
         return amat[v[1][smallest]]
 
-    def pad_HapsPos(self,haplotypes,positions,maxSNPs=None,frameWidth=0,center=False):
+    def pad_HapsPos(self,haplotypes,positions=None,maxSNPs=None,frameWidth=0,center=False):
         '''
         pads the haplotype and positions tensors
         to be uniform with the largest tensor
         '''
 
         haps = haplotypes
-        pos = positions
+        #pos = positions
 
         #Normalize the shape of all haplotype vectors with padding
         for i in range(len(haps)):
@@ -113,25 +115,26 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
                 prior = paddingLen // 2
                 post = paddingLen - prior
                 haps[i] = np.pad(haps[i],((prior,post),(0,0)),"constant",constant_values=2.0)
-                pos[i] = np.pad(pos[i],(prior,post),"constant",constant_values=-1.0)
+                #pos[i] = np.pad(pos[i],(prior,post),"constant",constant_values=-1.0)
 
             else:
                 if(paddingLen < 0):
                     haps[i] = np.pad(haps[i],((0,0),(0,0)),"constant",constant_values=2.0)[:paddingLen]
-                    pos[i] = np.pad(pos[i],(0,0),"constant",constant_values=-1.0)[:paddingLen]
+                    #pos[i] = np.pad(pos[i],(0,0),"constant",constant_values=-1.0)[:paddingLen]
                 else:
                     haps[i] = np.pad(haps[i],((0,paddingLen),(0,0)),"constant",constant_values=2.0)
-                    pos[i] = np.pad(pos[i],(0,paddingLen),"constant",constant_values=-1.0)
+                    #pos[i] = np.pad(pos[i],(0,paddingLen),"constant",constant_values=-1.0)
 
         haps = np.array(haps,dtype='float32')
-        pos = np.array(pos,dtype='float32')
+        #pos = np.array(pos,dtype='float32')
 
         if(frameWidth):
             fw = frameWidth
             haps = np.pad(haps,((0,0),(fw,fw),(fw,fw)),"constant",constant_values=2.0)
-            pos = np.pad(pos,((0,0),(fw,fw)),"constant",constant_values=-1.0)
+            #pos = np.pad(pos,((0,0),(fw,fw)),"constant",constant_values=-1.0)
 
-        return haps,pos
+        #return haps,pos
+        return haps
 
     def padAlleleFqs(self,haplotypes,positions,maxSNPs=None,frameWidth=0,center=False):
         '''
@@ -284,41 +287,60 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         np.random.shuffle(t)
         return x[:,t]
 
-    def attacked(self, haps, attackName, model, attackParams, attackFraction):
-        # Attack the haps
-        if attackName == "fgsm":
-            adv_haps = fast_gradient_method(self.model, haps, **attackParams)
-        elif attackName == "pgd":
-            adv_haps = projected_gradient_descent(self.model, haps, **attackParams)
+    def attacked(self, haps, attackName, model, attackParams, attackFraction, writeAttacks, attackPaths):
+        if writeAttacks:
+            # Attack the haps
+            if attackName == "fgsm":
+                adv_haps = fast_gradient_method(self.model, haps, **attackParams)
+            elif attackName == "pgd":
+                adv_haps = projected_gradient_descent(self.model, haps, **attackParams)
+            else:
+                print("attack unknown, need to add")
         else:
-            print("attack unknown, need to add")
+            # Assume the attacks have already been written to the disk
+            # Load the preattacked haps
+            adv_haps = []
+            for attackPath in attackPaths:
+                H = np.load(attackPath)
+                adv_haps.append(H)
+            adv_haps = np.array(adv_haps,dtype='float32')
+
         ## randomly replace attackFraction of haps with adv_haps
         mask = np.array([False]*haps.shape[0])
         trues = np.random.choice(np.arange(haps.shape[0]), size = int(haps.shape[0] * attackFraction), replace=False)
         mask[trues] = True
         haps[mask] = adv_haps[mask]
+
+        if writeAttacks:
+            for i, H in enumerate(haps):
+                np.save(attackPaths[i],H)
         return haps
 
     def __data_generation(self, batchTreeIndices):
 
+        # currently commenting everything involving positions
+
         haps = []
-        pos = []
+        #pos = []
+        attackPaths = []
 
         for treeIndex in batchTreeIndices:
             Hfilepath = os.path.join(self.treesDirectory,str(treeIndex) + "_haps.npy")
-            Pfilepath = os.path.join(self.treesDirectory,str(treeIndex) + "_pos.npy")
+            #Pfilepath = os.path.join(self.treesDirectory,str(treeIndex) + "_pos.npy")
+            attackPath = os.path.join(self.treesDirectory+"_attacked",str(treeIndex) + "_haps.npy")
+            attackPaths.append(attackPath)
             H = np.load(Hfilepath)
-            P = np.load(Pfilepath)
+            #P = np.load(Pfilepath)
             haps.append(H)
-            pos.append(P)
+            #pos.append(P)
 
         #respectiveNormalizedTargets = [[t] for t in self.normalizedTargets[batchTreeIndices]] # use for binary crossentropy
         respectiveNormalizedTargets = [t for t in self.normalizedTargets[batchTreeIndices]] # use for categorical crossentropy
         targets = np.array(respectiveNormalizedTargets)
 
-        if(self.realLinePos):
-            for p in range(len(pos)):
-                pos[p] = pos[p] / self.infoDir["ChromosomeLength"]
+        #if(self.realLinePos):
+        #    for p in range(len(pos)):
+        #        pos[p] = pos[p] / self.infoDir["ChromosomeLength"]
 
         if(self.sortInds):
             for i in range(len(haps)):
@@ -329,28 +351,30 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
                 haps[i] = self.shuffleIndividuals(haps[i])
 
         if self.seqD:
-            # simulate pool-sequencing
-            if(self.maxLen != None):
-                # convert the haps to allele frequecies and then pad
-                haps,pos = self.padAlleleFqs(haps,pos,
-                    maxSNPs=self.maxLen,
-                    frameWidth=self.frameWidth,
-                    center=self.center)
+            print("Error: not working for pools")
+            sys.exit(1)
+            ## simulate pool-sequencing
+            #if(self.maxLen != None):
+            #    # convert the haps to allele frequecies and then pad
+            #    haps,pos = self.padAlleleFqs(haps,pos,
+            #        maxSNPs=self.maxLen,
+            #        frameWidth=self.frameWidth,
+            #        center=self.center)
 
-                haps=np.where(haps == -1.0, self.posPadVal,haps)
-                pos=np.where(pos == -1.0, self.posPadVal,pos)
-                z = np.stack((haps,pos), axis=-1)
+            #    haps=np.where(haps == -1.0, self.posPadVal,haps)
+            #    pos=np.where(pos == -1.0, self.posPadVal,pos)
+            #    z = np.stack((haps,pos), axis=-1)
 
-                return z, targets
+            #    return z, targets
         else:
             if(self.maxLen != None):
                 # pad
-                haps,pos = self.pad_HapsPos(haps,pos,
+                haps = self.pad_HapsPos(haps,
                     maxSNPs=self.maxLen,
                     frameWidth=self.frameWidth,
                     center=self.center)
 
-                pos=np.where(pos == -1.0, self.posPadVal,pos)
+                #pos=np.where(pos == -1.0, self.posPadVal,pos)
                 haps=np.where(haps < 1.0, self.ancVal, haps)
                 haps=np.where(haps > 1.0, self.padVal, haps)
                 haps=np.where(haps == 1.0, self.derVal, haps)
@@ -358,7 +382,7 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
                 if self.attackFraction == 0.0:
                     return haps, targets
                 else:
-                    return self.attacked(haps, self.attackName, self.model, self.attackParams, self.attackFraction), targets
+                    return self.attacked(haps, self.attackName, self.model, self.attackParams, self.attackFraction, self.writeAttacks, attackPaths), targets
 
 
 class VCFBatchGenerator(tf.keras.utils.Sequence):

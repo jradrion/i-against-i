@@ -46,16 +46,17 @@ def main():
     nProc = args.nCPU
     trialDir = os.path.join(projectDir,"trial")
     trainDir = os.path.join(projectDir,"train")
+    trainDirAttacked = os.path.join(projectDir,"train_attacked")
     valiDir = os.path.join(projectDir,"vali")
+    valiDirAttacked = os.path.join(projectDir,"vali_attacked")
     testDir = os.path.join(projectDir,"test")
     networkDir = os.path.join(projectDir,"networks")
 
 
     ## Make directories if they do not exist
-    for p in [projectDir,trialDir,trainDir,valiDir,testDir,networkDir]:
+    for p in [projectDir,trialDir,trainDir,trainDirAttacked,valiDir,valiDirAttacked,testDir,networkDir]:
         if not os.path.exists(p):
             os.makedirs(p)
-
     assumedMu_lo = args.mu_lo
     assumedMu_hi = args.mu_hi
     assumedR_lo = args.r_lo
