@@ -327,12 +327,15 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         for treeIndex in batchTreeIndices:
             Hfilepath = os.path.join(self.treesDirectory,str(treeIndex) + "_haps.npy")
             #Pfilepath = os.path.join(self.treesDirectory,str(treeIndex) + "_pos.npy")
-            attackPath = os.path.join(self.treesDirectory+"_attacked",str(treeIndex) + "_haps.npy")
-            attackPaths.append(attackPath)
             H = np.load(Hfilepath)
             #P = np.load(Pfilepath)
             haps.append(H)
             #pos.append(P)
+            if self.attackName:
+                attackPath = os.path.join(self.treesDirectory+"_"+self.attackName,str(treeIndex) + "_haps.npy")
+                attackPaths.append(attackPath)
+
+
 
         #respectiveNormalizedTargets = [[t] for t in self.normalizedTargets[batchTreeIndices]] # use for binary crossentropy
         respectiveNormalizedTargets = [t for t in self.normalizedTargets[batchTreeIndices]] # use for categorical crossentropy

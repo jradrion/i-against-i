@@ -9,6 +9,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
     parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
+    parser.add_argument('-a','--attackFraction',dest='attackFraction',help='Fraction of training set to be comprised of adversarial examples', type=float, default=0.0)
     parser.add_argument('-im','--initModel',dest='model',help='Path to the initialization model',default=None)
     parser.add_argument('-iw','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
     parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
@@ -32,6 +33,8 @@ def main():
         projectDir = os.getcwd()
     else:
         projectDir = args.outDir
+
+    
     trainDir = os.path.join(projectDir,"train")
     valiDir = os.path.join(projectDir,"vali")
     testDir = os.path.join(projectDir,"test")
@@ -115,11 +118,13 @@ def main():
             validationSteps=args.nValSteps,
             nCPU=args.nCPU,
             gpuID=args.gpuID,
-            learningRate=0.001) 
+            learningRate=0.001,
+            attackFraction=args.attackFraction) 
     
     ## Plot results of predictions on test set
     plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig)
-    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_2.p"),saveas=test_resultFig.replace(".pdf","_2.pdf"))
+    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_fgsm.p"),saveas=test_resultFig.replace(".pdf","_fgsm.pdf"))
+    #plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"))
 
 
     print("\n***FINISHED!***\n")
