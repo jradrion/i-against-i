@@ -22,11 +22,13 @@ def main():
     parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
     args = parser.parse_args()
     
-    ## Set seed
+    
+    ### Set seed
     if args.seed:
+        os.environ['PYTHONHASHSEED']=str(args.seed)
         random.seed(args.seed)
         np.random.seed(args.seed)
-        tf.random.set_seed(args.seed)
+
     
     ### Shuffle files and directories around
     ## rename Dir_B sfs.pdf
@@ -93,7 +95,8 @@ def main():
         'derVal':1,
         'realLinePos':True,
         'posPadVal':0,
-        'seqD':None
+        'seqD':None,
+        'randN':args.seed
               }
 
 
@@ -136,7 +139,8 @@ def main():
             validationSteps=args.nValSteps,
             nCPU=args.nCPU,
             gpuID=args.gpuID,
-            learningRate=0.001)
+            learningRate=0.001,
+            randN=args.seed)
 
 
     ## Plot results of predictions on test set

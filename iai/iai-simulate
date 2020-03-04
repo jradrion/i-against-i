@@ -2,7 +2,6 @@
 
 from iai.imports import *
 from iai.helpers import *
-from iai.manager import *
 from iai.simulator import *
 
 
@@ -35,13 +34,15 @@ def main():
         projectDir = os.getcwd()
     else:
         projectDir = args.outDir
-    
-    ## Set seed
+
+
+    ### Set seed
     if args.seed:
+        os.environ['PYTHONHASHSEED']=str(args.seed)
         random.seed(args.seed)
         np.random.seed(args.seed)
-        tf.random.set_seed(args.seed)
- 
+
+
     ## Set up the directory structure to store the simulations data.
     nProc = args.nCPU
     trialDir = os.path.join(projectDir,"trial")

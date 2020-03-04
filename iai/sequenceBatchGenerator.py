@@ -49,7 +49,8 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
             splitFLAG = False,
             seqD = None,
             maf = None,
-            hotspots = False
+            hotspots = False,
+            randN = 12345
             ):
 
         self.treesDirectory = treesDirectory
@@ -78,6 +79,9 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         self.seqD = seqD
         self.maf = maf
         self.hotspots = hotspots
+        self.randN = randN
+
+        np.random.seed(randN)
 
         if(targetNormalization != None):
             if self.hotspots:
@@ -87,6 +91,7 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
 
         if(shuffleExamples):
             np.random.shuffle(self.indices)
+
 
     def sort_min_diff(self,amat):
         '''this function takes in a SNP matrix with indv on rows and returns the same matrix with indvs sorted by genetic similarity.
@@ -386,269 +391,3 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
                     return haps, targets
                 else:
                     return self.attacked(haps, self.attackName, self.model, self.attackParams, self.attackFraction, self.writeAttacks, attackPaths), targets
-
-
-class VCFBatchGenerator(tf.keras.utils.Sequence):
-    """Basically same as SequenceBatchGenerator Class except for VCF files"""
-    def __init__(self,
-            INFO,
-            CHROM,
-            WIN,
-            IDs,
-            GT,
-            POS,
-            batchSize=64,
-            maxLen=None,
-            frameWidth=0,
-            center=False,
-            sortInds=False,
-            ancVal = -1,
-            padVal = -1,
-            derVal = 1,
-            realLinePos = True,
-            posPadVal = 0,
-            phase=None
-            ):
-
-        self.INFO=INFO
-        self.CHROM=CHROM
-        self.WIN=WIN
-        self.IDs=IDs
-        self.GT=GT
-        self.POS=POS
-        self.batch_size = batchSize
-        self.maxLen = maxLen
-        self.frameWidth = frameWidth
-        self.center = center
-        self.sortInds=sortInds
-        self.ancVal = ancVal
-        self.padVal = padVal
-        self.derVal = derVal
-        self.realLinePos = realLinePos
-        self.posPadVal = posPadVal
-        self.phase=phase
-
-
-    def pad_HapsPosVCF(self,haplotypes,positions,maxSNPs=None,frameWidth=0,center=False):
-        '''
-        pads the haplotype and positions tensors
-        to be uniform with the largest tensor
-        '''
-
-        haps = haplotypes
-        pos = positions
-
-        nSNPs=[]
-
-        #Normalize the shape of all haplotype vectors with padding
-        for i in range(len(haps)):
-            numSNPs = haps[i].shape[0]
-            nSNPs.append(numSNPs)
-            paddingLen = maxSNPs - numSNPs
-            if(center):
-                prior = paddingLen // 2
-                post = paddingLen - prior
-                haps[i] = np.pad(haps[i],((prior,post),(0,0)),"constant",constant_values=2.0)
-                pos[i] = np.pad(pos[i],(prior,post),"constant",constant_values=-1.0)
-
-            else:
-                haps[i] = np.pad(haps[i],((0,paddingLen),(0,0)),"constant",constant_values=2.0)
-                pos[i] = np.pad(pos[i],(0,paddingLen),"constant",constant_values=-1.0)
-
-        haps = np.array(haps,dtype='float32')
-        pos = np.array(pos,dtype='float32')
-
-        if(frameWidth):
-            fw = frameWidth
-            haps = np.pad(haps,((0,0),(fw,fw),(fw,fw)),"constant",constant_values=2.0)
-            pos = np.pad(pos,((0,0),(fw,fw)),"constant",constant_values=-1.0)
-        return haps,pos,nSNPs
-
-    def __getitem__(self, idx):
-        genos=self.GT
-        GT=self.GT.to_haplotypes()
-        diploid_check=[]
-        for n in range(1,len(genos[0]),2):
-            GTB=GT[:,n:n+1]
-            if np.unique(GTB).shape[0] == 1 and np.unique(GTB)[0] == -1:
-                diploid_check.append(0)
-            else:
-                diploid_check.append(1)
-                break
-        if 1 in diploid_check:
-            GT=np.array(GT)
-        else:
-            GT=GT[:,::2] #Select only the first of the genotypes
-        GT = np.where(GT == -1, 2, GT) # Code missing data as 2, these will ultimately end up being transformed to the pad value
-
-        if not self.phase:
-            np.random.shuffle(np.transpose(GT))
-
-        haps,pos=[],[]
-        for i in range(len(self.IDs)):
-            haps.append(GT[self.IDs[i][0]:self.IDs[i][1]])
-            pos.append(self.POS[self.IDs[i][0]:self.IDs[i][1]])
-
-        if(self.realLinePos):
-            for i in range(len(pos)):
-                pos[i] = (pos[i]-(self.WIN*i)) / self.WIN
-
-        if(self.sortInds):
-            for i in range(len(haps)):
-                haps[i] = np.transpose(sort_min_diff(np.transpose(haps[i])))
-
-        if(self.maxLen != None):
-            ##then we're probably padding
-            haps,pos,nSNPs = self.pad_HapsPosVCF(haps,pos,
-                maxSNPs=self.maxLen,
-                frameWidth=self.frameWidth,
-                center=self.center)
-
-            pos=np.where(pos == -1.0, self.posPadVal,pos)
-            haps=np.where(haps < 1.0, self.ancVal, haps)
-            haps=np.where(haps > 1.0, self.padVal, haps)
-            haps=np.where(haps == 1.0, self.derVal, haps)
-
-            return [haps,pos], self.CHROM, self.WIN, self.INFO, nSNPs
-
-
-class POOLBatchGenerator(tf.keras.utils.Sequence):
-    """Basically same as SequenceBatchGenerator Class except for POOL files"""
-    def __init__(self,
-            INFO,
-            CHROM,
-            WIN,
-            IDs,
-            GT,
-            POS,
-            batchSize=64,
-            maxLen=None,
-            frameWidth=0,
-            center=False,
-            sortInds=False,
-            ancVal = -1,
-            padVal = -1,
-            derVal = 1,
-            realLinePos = True,
-            posPadVal = 0,
-            normType = 'zscore',
-            ):
-
-        self.INFO=INFO
-        self.normType = normType
-        self.CHROM=CHROM
-        self.WIN=WIN
-        self.IDs=IDs
-        self.GT=GT
-        self.POS=POS
-        self.batch_size = batchSize
-        self.maxLen = maxLen
-        self.frameWidth = frameWidth
-        self.center = center
-        self.sortInds=sortInds
-        self.ancVal = ancVal
-        self.padVal = padVal
-        self.derVal = derVal
-        self.realLinePos = realLinePos
-        self.posPadVal = posPadVal
-
-
-    def padFqs(self,haplotypes,positions,maxSNPs=None,frameWidth=0,center=False):
-        '''
-        normalize, and pad the haplotype and positions tensors
-        to be uniform with the largest tensor
-        '''
-
-        fqs = haplotypes
-        pos = positions
-
-        # Normalize
-        fqs = self.normalizeAlleleFqs(fqs)
-
-        nSNPs=[]
-        # Pad
-        for i in range(len(fqs)):
-            numSNPs = fqs[i].shape[0]
-            nSNPs.append(numSNPs)
-            paddingLen = maxSNPs - numSNPs
-            if(center):
-                prior = paddingLen // 2
-                post = paddingLen - prior
-                fqs[i] = np.pad(fqs[i],(prior,post),"constant",constant_values=-1.0)
-                pos[i] = np.pad(pos[i],(prior,post),"constant",constant_values=-1.0)
-
-            else:
-                if(paddingLen < 0):
-                    fqs[i] = np.pad(fqs[i],(0,0),"constant",constant_values=-1.0)[:paddingLen]
-                    pos[i] = np.pad(pos[i],(0,0),"constant",constant_values=-1.0)[:paddingLen]
-                else:
-                    fqs[i] = np.pad(fqs[i],(0,paddingLen),"constant",constant_values=-1.0)
-                    pos[i] = np.pad(pos[i],(0,paddingLen),"constant",constant_values=-1.0)
-
-        fqs = np.array(fqs,dtype='float32')
-        pos = np.array(pos,dtype='float32')
-
-        if(frameWidth):
-            fw = frameWidth
-            fqs = np.pad(fqs,((0,0),(fw,fw)),"constant",constant_values=-1.0)
-            pos = np.pad(pos,((0,0),(fw,fw)),"constant",constant_values=-1.0)
-
-        return fqs,pos,nSNPs
-
-
-    def normalizeAlleleFqs(self, fqs):
-
-        '''
-        normalize the allele frequencies for the batch
-        '''
-
-        norm = self.normType
-
-        if(norm == 'zscore'):
-            allVals = np.concatenate([a.flatten() for a in fqs])
-            fqs_mean = np.mean(allVals)
-            fqs_sd = np.std(allVals)
-            for i in range(len(fqs)):
-                fqs[i] = np.subtract(fqs[i],fqs_mean)
-                fqs[i] = np.divide(fqs[i],fqs_sd,out=np.zeros_like(fqs[i]),where=fqs_sd!=0)
-
-        elif(norm == 'divstd'):
-            allVals = np.concatenate([a.flatten() for a in fqs])
-            fqs_sd = np.std(allVals)
-            for i in range(len(fqs)):
-                fqs[i] = np.divide(fqs[i],fqs_sd,out=np.zeros_like(fqs[i]),where=fqs_sd!=0)
-
-        return fqs
-
-
-    def __getitem__(self, idx):
-        GT=self.GT
-
-        haps,pos=[],[]
-        for i in range(len(self.IDs)):
-            haps.append(GT[self.IDs[i][0]:self.IDs[i][1]])
-            pos.append(self.POS[self.IDs[i][0]:self.IDs[i][1]])
-
-        if(self.realLinePos):
-            for i in range(len(pos)):
-                pos[i] = (pos[i]-(self.WIN*i)) / self.WIN
-
-        if(self.sortInds):
-            for i in range(len(haps)):
-                haps[i] = np.transpose(sort_min_diff(np.transpose(haps[i])))
-
-        # pad the allele freqs and positions
-        if(self.maxLen != None):
-            haps,pos,nSNPs = self.padFqs(haps,pos,
-                maxSNPs=self.maxLen,
-                frameWidth=self.frameWidth,
-                center=self.center)
-
-            haps=np.where(haps == -1.0, self.posPadVal,haps)
-            pos=np.where(pos == -1.0, self.posPadVal,pos)
-            np.set_printoptions(threshold=sys.maxsize)
-            z = np.stack((haps,pos), axis=-1)
-
-            return z, self.CHROM, self.WIN, self.INFO, nSNPs
-
-

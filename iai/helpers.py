@@ -321,18 +321,28 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             nCPU = 1,
             gpuID = 0,
             learningRate=0.001,
-            attackFraction=0.0):
+            attackFraction=0.0,
+            attackBatchSize=None,
+            seed=12345):
 
 
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
+
 
     ## The following code block appears necessary for running with tf2 and cudnn
     from tensorflow.compat.v1 import ConfigProto
     from tensorflow.compat.v1 import Session
     config = ConfigProto()
     config.gpu_options.allow_growth = True
-    sess = Session(config=config)
+    #sess = Session(config=config)
+    Session(config=config)
     ###
+
+    #os.environ['TF_DETERMINISTIC_OPS'] = '1'
+    #os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+    #os.environ['PYTHONHASHSEED']=str(seed)
+    #np.random.seed(seed)
+    #tf.random.set_seed(seed)
 
     if(resultsFile == None):
 
@@ -352,8 +362,13 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     # Test generator
     x,y = TrainGenerator.__getitem__(0)
-    model = ModelFuncPointer(x,y)
 
+    # If TestGenerator is called after model.fit the random shuffling is not the same, even with same sered
+    x_test,y_test = TestGenerator.__getitem__(0)
+    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
+
+    ## define model
+    model = ModelFuncPointer(x,y)
     # Early stopping and saving the best weights
     callbacks_list = [
             EarlyStopping(
@@ -375,16 +390,12 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         model=model_from_json(loadedModel)
         model.load_weights(initWeights)
     else:
-        # Train the network
         history = model.fit(TrainGenerator,
-            steps_per_epoch= epochSteps,
+            steps_per_epoch=epochSteps,
             epochs=numEpochs,
             validation_data=ValidationGenerator,
-            use_multiprocessing=True,
-            callbacks=callbacks_list,
-            max_queue_size=nCPU,
-            workers=nCPU,
-            )
+            use_multiprocessing=False,
+            callbacks=callbacks_list)
 
         # Write the network
         if(network != None):
@@ -403,15 +414,12 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         else:
             print("Error: model and weights not loaded")
             sys.exit(1)
-
+    sys.exit()
     # Metrics to track the different accuracies.
     test_acc_clean = tf.metrics.CategoricalAccuracy()
     test_acc_fgsm = tf.metrics.CategoricalAccuracy()
     #test_acc_pgd = tf.metrics.CategoricalAccuracy()
     #test_acc_spsa = tf.metrics.CategoricalAccuracy()
-
-    x_test,y_test = TestGenerator.__getitem__(0)
-    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
 
     # predict on clean test examples
     print("\nPredicting on clean examples...")
@@ -425,6 +433,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             'clip_min': 0.0,
             'clip_max': 1.0}
     x_fgsm = fast_gradient_method(model, x_test, **fgsm_params)
+
     print("Predicting on FGSM examples...")
     y_pred_fgsm = model.predict(x_fgsm)
     test_acc_fgsm(y_test, y_pred_fgsm)
@@ -497,9 +506,8 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     print("\n")
 
 
-
     ########## Adversarial training (FGSM) #############
-    tf.keras.backend.clear_session()
+    #tf.keras.backend.clear_session()
     ## similar objects as above except these have the extension _fgsm and _pgd
     print("\nRepeating the process, training training on adversarial examples (FGSM)")
     # define the attack generator for training examples
@@ -509,10 +517,10 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     adv_train_params["attackParams"] = fgsm_params
     adv_train_params["attackFraction"] = 1.0
     adv_train_params["writeAttacks"] = True
-    adv_train_params["batchSize"] = 1000
+    adv_train_params["batchSize"] = attackBatchSize
     attackGen_train = SequenceBatchGenerator(**adv_train_params)
     # attack the entire training set and write adversarial examples to disk
-    print("Attacking the training set...")
+    print("Attacking the training set in batches of %s..."%(attackBatchSize))
     num_batches = int(np.ceil(og_train_numReps/float(adv_train_params["batchSize"])))
     for i in range(num_batches):
         x_train,y_train = attackGen_train.__getitem__(i)
@@ -525,10 +533,10 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     adv_vali_params["attackParams"] = fgsm_params
     adv_vali_params["attackFraction"] = 1.0
     adv_vali_params["writeAttacks"] = True
-    adv_vali_params["batchSize"] = 1000
+    adv_vali_params["batchSize"] = attackBatchSize
     attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
     # attack the entire validation set and write adversarial examples to disk
-    print("\nAttacking the validation set...")
+    print("\nAttacking the validation set in batches of %s..."%(attackBatchSize))
     num_batches = int(np.ceil(og_vali_numReps/float(adv_vali_params["batchSize"])))
     for i in range(num_batches):
         x_vali,y_vali = attackGen_vali.__getitem__(i)
@@ -562,14 +570,20 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     # Train the network
     ## CUDA initialization errors when trying to run this with use_multiprocessing=True
+    #history_fgsm = model_fgsm.fit(x=attackGen_train,
+    #    steps_per_epoch= epochSteps,
+    #    epochs=numEpochs,
+    #    validation_data=attackGen_vali,
+    #    callbacks=callbacks_list_fgsm,
+    #    use_multiprocessing=True,
+    #    max_queue_size=nCPU,
+    #    workers=nCPU)
     history_fgsm = model_fgsm.fit(x=attackGen_train,
-        steps_per_epoch= epochSteps,
+        steps_per_epoch=epochSteps,
         epochs=numEpochs,
         validation_data=attackGen_vali,
         callbacks=callbacks_list_fgsm,
-        use_multiprocessing=True,
-        max_queue_size=nCPU,
-        workers=nCPU)
+        use_multiprocessing=False)
 
     # Write the network
     if(network != None):
@@ -807,7 +821,8 @@ def runModels_cleverhans_tf2_B(ModelFuncPointer,
             network=None,
             nCPU = 1,
             gpuID = 0,
-            learningRate=0.001
+            learningRate=0.001,
+            seed=12345
             ):
 
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
@@ -817,9 +832,12 @@ def runModels_cleverhans_tf2_B(ModelFuncPointer,
     from tensorflow.compat.v1 import Session
     config = ConfigProto()
     config.gpu_options.allow_growth = True
-    sess = Session(config=config)
+    #sess = Session(config=config)
+    Session(config=config)
     ###
 
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
 
     ########### Prediction on non-adversarial trained network #############
     # Load json and create model
@@ -956,27 +974,27 @@ def progress_bar(percent, barLen = 50):
     sys.stdout.write("[ %s ] %.2f%%" % (progress, percent * 100))
     sys.stdout.flush()
 
-#-------------------------------------------------------------------------------------------
-
-def indicesGenerator(batchSize,numReps):
-    '''
-    Generate indices randomly from range (0,numReps) in batches of size batchSize
-    without replacement.
-
-    This is for the batch generator to randomly choose trees from a directory
-    but make sure
-    '''
-    availableIndices = np.arange(numReps)
-    np.random.shuffle(availableIndices)
-    ci = 0
-    while 1:
-        if((ci+batchSize) > numReps):
-            ci = 0
-            np.random.shuffle(availableIndices)
-        batchIndices = availableIndices[ci:ci+batchSize]
-        ci = ci+batchSize
-
-        yield batchIndices
+##-------------------------------------------------------------------------------------------
+#
+#def indicesGenerator(batchSize,numReps):
+#    '''
+#    Generate indices randomly from range (0,numReps) in batches of size batchSize
+#    without replacement.
+#
+#    This is for the batch generator to randomly choose trees from a directory
+#    but make sure
+#    '''
+#    availableIndices = np.arange(numReps)
+#    np.random.shuffle(availableIndices)
+#    ci = 0
+#    while 1:
+#        if((ci+batchSize) > numReps):
+#            ci = 0
+#            np.random.shuffle(availableIndices)
+#        batchIndices = availableIndices[ci:ci+batchSize]
+#        ci = ci+batchSize
+#
+#        yield batchIndices
 
 #-------------------------------------------------------------------------------------------
 
@@ -1008,27 +1026,27 @@ def getHapsPosLabels(direc,simulator,shuffle=False):
 
     return haps,positions,labels
 
-#-------------------------------------------------------------------------------------------
-
-def simplifyTreeSequenceOnSubSampleSet_stub(ts,numSamples):
-    '''
-    This function should take in a tree sequence, generate
-    a subset the size of numSamples, and return the tree sequence simplified on
-    that subset of individuals
-    '''
-
-    ts = ts.simplify() #is this neccessary
-    inds = [ind.id for ind in ts.individuals()]
-    sample_subset = np.sort(np.random.choice(inds,sample_size,replace=False))
-    sample_nodes = []
-    for i in sample_subset:
-        ind = ts.individual(i)
-        sample_nodes.append(ind.nodes[0])
-        sample_nodes.append(ind.nodes[1])
-
-    ts = ts.simplify(sample_nodes)
-
-    return ts
+##-------------------------------------------------------------------------------------------
+#
+#def simplifyTreeSequenceOnSubSampleSet_stub(ts,numSamples):
+#    '''
+#    This function should take in a tree sequence, generate
+#    a subset the size of numSamples, and return the tree sequence simplified on
+#    that subset of individuals
+#    '''
+#
+#    ts = ts.simplify() #is this neccessary
+#    inds = [ind.id for ind in ts.individuals()]
+#    sample_subset = np.sort(np.random.choice(inds,sample_size,replace=False))
+#    sample_nodes = []
+#    for i in sample_subset:
+#        ind = ts.individual(i)
+#        sample_nodes.append(ind.nodes[0])
+#        sample_nodes.append(ind.nodes[1])
+#
+#    ts = ts.simplify(sample_nodes)
+#
+#    return ts
 
 #-------------------------------------------------------------------------------------------
 
@@ -1042,57 +1060,57 @@ def sort_min_diff(amat):
     smallest = np.argmin(v[0].sum(axis=1))
     return amat[v[1][smallest]]
 
-#-------------------------------------------------------------------------------------------
-
-def mutateTrees(treesDirec,outputDirec,muLow,muHigh,numMutsPerTree=1,simulator="msprime"):
-    '''
-    read in .trees files from treesDirec, mutate that tree numMuts seperate times
-    using a mutation rate pulled from a uniform dirstribution between muLow and muHigh
-
-    also, re-write the labels file to reflect.
-    '''
-    if(numMutsPerTree > 1):
-        assert(treesDirec != outputDirec)
-
-    if not os.path.exists(outputDirec):
-        print("directory '",outputDirec,"' does not exist, creating it")
-        os.makedirs(outputDirec)
-
-    infoFilename = os.path.join(treesDirec,"info.p")
-    infoDict = pickle.load(open(infoFilename,"rb"))
-    labels = infoDict["y"]
-
-    newLabels = []
-    newMaxSegSites = 0
-
-    #how many trees files are in this directory.
-    li = os.listdir(treesDirec)
-    numReps = len(li) - 1   #minus one for the 'labels.txt' file
-
-    for i in range(numReps):
-        filename = str(i) + ".trees"
-        filepath = os.path.join(treesDirec,filename)
-        treeSequence = msp.load(filepath)
-        blankTreeSequence = msp.mutate(treeSequence,0)
-        rho = labels[i]
-        for mut in range(numMuts):
-            simNum = (i*numMuts) + mut
-            simFileName = os.path.join(outputDirec,str(simNum)+".trees")
-            mutationRate = np.random.uniform(muLow,muHigh)
-            mutatedTreeSequence = msp.mutate(blankTreeSequence,mutationRate)
-            mutatedTreeSequence.dump(simFileName)
-            newMaxSegSites = max(newMaxSegSites,mutatedTreeSequence.num_sites)
-            newLabels.append(rho)
-
-    infoCopy = copy.deepcopy(infoDict)
-    infoCopy["maxSegSites"] = newMaxSeqSites
-    if(numMutsPerTree > 1):
-        infoCopy["y"] = np.array(newLabels,dtype="float32")
-        infoCopy["numReps"] = numReps * numMuts
-    outInfoFilename = os.path.join(outputDirec,"info.p")
-    pickle.dump(infocopy,open(outInfoFilename,"wb"))
-
-    return None
+##-------------------------------------------------------------------------------------------
+#
+#def mutateTrees(treesDirec,outputDirec,muLow,muHigh,numMutsPerTree=1,simulator="msprime"):
+#    '''
+#    read in .trees files from treesDirec, mutate that tree numMuts seperate times
+#    using a mutation rate pulled from a uniform dirstribution between muLow and muHigh
+#
+#    also, re-write the labels file to reflect.
+#    '''
+#    if(numMutsPerTree > 1):
+#        assert(treesDirec != outputDirec)
+#
+#    if not os.path.exists(outputDirec):
+#        print("directory '",outputDirec,"' does not exist, creating it")
+#        os.makedirs(outputDirec)
+#
+#    infoFilename = os.path.join(treesDirec,"info.p")
+#    infoDict = pickle.load(open(infoFilename,"rb"))
+#    labels = infoDict["y"]
+#
+#    newLabels = []
+#    newMaxSegSites = 0
+#
+#    #how many trees files are in this directory.
+#    li = os.listdir(treesDirec)
+#    numReps = len(li) - 1   #minus one for the 'labels.txt' file
+#
+#    for i in range(numReps):
+#        filename = str(i) + ".trees"
+#        filepath = os.path.join(treesDirec,filename)
+#        treeSequence = msp.load(filepath)
+#        blankTreeSequence = msp.mutate(treeSequence,0)
+#        rho = labels[i]
+#        for mut in range(numMuts):
+#            simNum = (i*numMuts) + mut
+#            simFileName = os.path.join(outputDirec,str(simNum)+".trees")
+#            mutationRate = np.random.uniform(muLow,muHigh)
+#            mutatedTreeSequence = msp.mutate(blankTreeSequence,mutationRate)
+#            mutatedTreeSequence.dump(simFileName)
+#            newMaxSegSites = max(newMaxSegSites,mutatedTreeSequence.num_sites)
+#            newLabels.append(rho)
+#
+#    infoCopy = copy.deepcopy(infoDict)
+#    infoCopy["maxSegSites"] = newMaxSeqSites
+#    if(numMutsPerTree > 1):
+#        infoCopy["y"] = np.array(newLabels,dtype="float32")
+#        infoCopy["numReps"] = numReps * numMuts
+#    outInfoFilename = os.path.join(outputDirec,"info.p")
+#    pickle.dump(infocopy,open(outInfoFilename,"wb"))
+#
+#    return None
 
 #-------------------------------------------------------------------------------------------
 

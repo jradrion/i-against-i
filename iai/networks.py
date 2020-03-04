@@ -39,6 +39,34 @@ def iaiCNN_categorical_crossentropy(inputShape,y):
     return model
 
 
+def iaiCNN_categorical_crossentropy_noPos(x,y):
+
+    haps = x
+
+    numSNPs = haps[0].shape[0]
+    numSamps = haps[0].shape[1]
+
+    img_1_inputs = layers.Input(shape=(numSNPs,numSamps))
+
+    h = layers.Conv1D(1250, kernel_size=2, activation='relu', name='conv1_1')(img_1_inputs)
+    h = layers.Conv1D(512, kernel_size=2, dilation_rate=1, activation='relu')(h)
+    h = layers.AveragePooling1D(pool_size=2)(h)
+    h = layers.Dropout(0.25)(h)
+    h = layers.Conv1D(512, kernel_size=2, activation='relu')(h)
+    h = layers.AveragePooling1D(pool_size=2)(h)
+    h = layers.Dropout(0.25)(h)
+    h = layers.Flatten()(h)
+    h = layers.Dense(128,activation='relu')(h)
+    h = layers.Dropout(0.2)(h)
+    output = layers.Dense(2,kernel_initializer='normal',name="softmax",activation='softmax')(h)
+
+    model = Model(inputs=[img_1_inputs], outputs=[output])
+    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    model.summary()
+
+    return model
+
+
 def iaiGRU_categorical_crossentropy_noPos(x,y):
     '''
     Same as GRU_VANILLA but with dropout AFTER each dense layer.
@@ -66,6 +94,35 @@ def iaiGRU_categorical_crossentropy_noPos(x,y):
     model.summary()
 
     return model
+
+
+#def iaiGRU_categorical_crossentropy_noPos(x,y):
+#    '''
+#    Same as GRU_VANILLA but with dropout AFTER each dense layer.
+#    '''
+#    haps = x
+#
+#    numSNPs = haps[0].shape[0]
+#    numSamps = haps[0].shape[1]
+#
+#    genotype_inputs = layers.Input(shape=(numSNPs,numSamps))
+#    model = layers.Bidirectional(layers.GRU(84,return_sequences=False,bias_initializer='zeros',kernel_initializer=tf.random_uniform_initializer(seed=123)))(genotype_inputs)
+#    model = layers.Dense(256)(model)
+#    model = layers.Dropout(0.35)(model)
+#
+#    #----------------------------------------------------
+#
+#    model = layers.Dense(64)(model)
+#    model = layers.Dropout(0.35)(model)
+#    output = layers.Dense(2,kernel_initializer='normal',name="softmax",activation='softmax')(model)
+#
+#    #----------------------------------------------------
+#
+#    model = Model(inputs=[genotype_inputs], outputs=[output])
+#    model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+#    model.summary()
+#
+#    return model
 
 
 def iaiCNN_binary_crossentropy(inputShape,y):

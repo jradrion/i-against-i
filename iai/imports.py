@@ -11,8 +11,8 @@ import msprime as msp
 import numpy as np
 import os
 import multiprocessing as mp
-import shutil
 import random
+import shutil
 import copy
 import argparse
 import h5py
