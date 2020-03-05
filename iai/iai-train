@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
     parser.add_argument('--nValSteps',dest='nValSteps',help='Number of validation steps', type=int, default=20)
     parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
+    parser.add_argument('-r','--rep',dest='rep',help='Training replicate number',type=int,default=None)
     parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
     parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
     args = parser.parse_args()
@@ -23,12 +24,12 @@ def main():
 
     ### Set seed
     if args.seed:
-        #os.environ['TF_DETERMINISTIC_OPS'] = '1'
-        os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
         os.environ['PYTHONHASHSEED']=str(args.seed)
         random.seed(args.seed)
         np.random.seed(args.seed)
         tf.random.set_seed(args.seed)
+        os.environ['TF_DETERMINISTIC_OPS'] = '1'
+        os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 
 
     ## Set up the directory structure to store the simulations data.
@@ -37,14 +38,33 @@ def main():
         projectDir = os.getcwd()
     else:
         projectDir = args.outDir
-
+    
+    
+    ## Define and create the new training rep directories
+    trainDir_fgsm = os.path.join(projectDir,"train_fgsm")
+    valiDir_fgsm = os.path.join(projectDir,"vali_fgsm")
+    #trainDir_pgd = os.path.join(projectDir,"train_pgd")
+    #valiDir_pgd = os.path.join(projectDir,"vali_pgd")
+    for p in [trainDir_fgsm,valiDir_fgsm]:
+    #for p in [trainDir_fgsm,trainDir_pgd,valiDir_fgsm,valiDir_pgd]:
+        if args.rep:
+            p += "_rep%s"%(args.rep)
+        if not os.path.exists(p):
+            os.makedirs(p)
+    
+    if args.rep:
+        networkDir_OG = os.path.join(projectDir,"networks")
+        networkDir = os.path.join(projectDir,"networks"+"_rep%s"%(args.rep)) 
+        cmd="cp -r %s %s"%(networkDir_OG, networkDir)
+        os.system(cmd)
+    else:
+        networkDir = os.path.join(projectDir,"networks")
     
     trainDir = os.path.join(projectDir,"train")
     valiDir = os.path.join(projectDir,"vali")
     testDir = os.path.join(projectDir,"test")
-    networkDir = os.path.join(projectDir,"networks")
-
-
+    
+    
     ## Define output files
     test_resultFile = os.path.join(networkDir,"testResults.p")
     test_resultFig = os.path.join(networkDir,"testResults.pdf")
@@ -78,7 +98,7 @@ def main():
         'realLinePos':True,
         'posPadVal':0,
         'seqD':None,
-        'randN':args.seed
+        'rep':args.rep
               }
 
 
@@ -126,7 +146,7 @@ def main():
             learningRate=0.001,
             attackFraction=args.attackFraction,
             attackBatchSize=args.attackBatchSize,
-            seed=args.seed) 
+            rep=args.rep) 
     
     ### Plot results of predictions on test set
     plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig)

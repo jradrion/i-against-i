@@ -50,7 +50,7 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
             seqD = None,
             maf = None,
             hotspots = False,
-            randN = 12345
+            rep = None
             ):
 
         self.treesDirectory = treesDirectory
@@ -79,9 +79,8 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         self.seqD = seqD
         self.maf = maf
         self.hotspots = hotspots
-        self.randN = randN
+        self.rep = rep
 
-        np.random.seed(randN)
 
         if(targetNormalization != None):
             if self.hotspots:
@@ -337,7 +336,10 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
             haps.append(H)
             #pos.append(P)
             if self.attackName:
-                attackPath = os.path.join(self.treesDirectory+"_"+self.attackName,str(treeIndex) + "_haps.npy")
+                if self.rep:
+                    attackPath = os.path.join(self.treesDirectory+"_"+self.attackName+"_rep%s"%(self.rep),str(treeIndex) + "_haps.npy")
+                else:
+                    attackPath = os.path.join(self.treesDirectory+"_"+self.attackName,str(treeIndex) + "_haps.npy")
                 attackPaths.append(attackPath)
 
 
