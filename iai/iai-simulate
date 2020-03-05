@@ -23,7 +23,7 @@ def main():
     parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
     parser.add_argument('--phased',help='Treat genotypes as phased',default=False, action='store_true')
     parser.add_argument('--unphased',dest='phased',help='Treat genotypes as unphased',action='store_false')
-    parser.add_argument('--paramsB',help='second set of parameters for test set B',default=False, action='store_true')
+    parser.add_argument('--paramsID',help='paramsID',type=int,default=None)
     parser.add_argument('--nTrain',dest='nTrain',help='Number of training examples to simulate',type=int,default=100000)
     parser.add_argument('--nVali',dest='nVali',help='Number of validation examples to simulate',type=int,default=1000)
     parser.add_argument('--nTest',dest='nTest',help='Number of test examples to simulate',type=int,default=1000)
@@ -46,12 +46,13 @@ def main():
 
     ## Set up the directory structure to store the simulations data.
     nProc = args.nCPU
-    if args.paramsB:
-        trialDir = os.path.join(projectDir,"trial_paramsB")
-        trainDir = os.path.join(projectDir,"train_paramsB")
-        valiDir = os.path.join(projectDir,"vali_paramsB")
-        testDir = os.path.join(projectDir,"test_paramsB")
-        networkDir = os.path.join(projectDir,"networks_paramsB")
+    if args.paramsID:
+        ID = args.paramsID
+        trialDir = os.path.join(projectDir,"trial_params%s"%(ID))
+        trainDir = os.path.join(projectDir,"train_params%s"%(ID))
+        valiDir = os.path.join(projectDir,"vali_params%s"%(ID))
+        testDir = os.path.join(projectDir,"test_params%s"%(ID))
+        networkDir = os.path.join(projectDir,"networks_params%s"%(ID))
     else:
         trialDir = os.path.join(projectDir,"trial")
         trainDir = os.path.join(projectDir,"train")
@@ -141,7 +142,7 @@ def main():
 
     ## Simulate data
     print("\nTraining set:")
-    if args.paramsB:
+    if args.paramsID:
         dg_train.simulateAndProduceTrees(numReps=1,direc=trainDir,simulator="msprime",nProc=nProc)
         print("Validation set:")
         dg_vali.simulateAndProduceTrees(numReps=1,direc=valiDir,simulator="msprime",nProc=nProc)
@@ -214,7 +215,7 @@ def main():
     plt.close()
 
     ## remove trial directory
-    if args.paramsB:
+    if args.paramsID:
         shutil.rmtree(trialDir)
         shutil.rmtree(trainDir)
         shutil.rmtree(valiDir)

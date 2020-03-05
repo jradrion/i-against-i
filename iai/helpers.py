@@ -411,7 +411,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     # Metrics to track the different accuracies.
     test_acc_clean = tf.metrics.CategoricalAccuracy()
     test_acc_fgsm = tf.metrics.CategoricalAccuracy()
-    #test_acc_pgd = tf.metrics.CategoricalAccuracy()
+    test_acc_pgd = tf.metrics.CategoricalAccuracy()
     #test_acc_spsa = tf.metrics.CategoricalAccuracy()
 
     # predict on clean test examples
@@ -431,19 +431,19 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     y_pred_fgsm = model.predict(x_fgsm)
     test_acc_fgsm(y_test, y_pred_fgsm)
 
-    ## predict on adversarial test examples using PGD
-    #print("Attacking using Projected Gradient Descent...")
-    #pgd_params = {'eps': 1.0,
-    #        'eps_iter': 1.0,
-    #        'nb_iter': 40,
-    #        'norm': np.inf,
-    #        'clip_min': 0.0,
-    #        'clip_max': 1.0,
-    #        'sanity_checks': False}
-    #x_pgd = projected_gradient_descent(model, x_test, **pgd_params)
-    #print("Predicting on PGD examples...")
-    #y_pred_pgd = model.predict(x_pgd)
-    #test_acc_pgd(y_test, y_pred_pgd)
+    # predict on adversarial test examples using PGD
+    print("Attacking using Projected Gradient Descent...")
+    pgd_params = {'eps': 1.0,
+            'eps_iter': 1.0,
+            'nb_iter': 40,
+            'norm': np.inf,
+            'clip_min': 0.0,
+            'clip_max': 1.0,
+            'sanity_checks': False}
+    x_pgd = projected_gradient_descent(model, x_test, **pgd_params)
+    print("Predicting on PGD examples...")
+    y_pred_pgd = model.predict(x_pgd)
+    test_acc_pgd(y_test, y_pred_pgd)
 
     ## predict on adversarial test examples using SPSA
     #print("Attacking using SPSA...")
@@ -458,7 +458,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean.result() * 100))
     print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm.result() * 100))
-    #print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd.result() * 100))
+    print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd.result() * 100))
     #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
 
     print("results written to: ",resultsFile)
@@ -466,7 +466,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     history.history['val_loss'] = np.array(history.history['val_loss'])
     history.history['predictions'] = np.array(y_pred)
     history.history['predictions_fgsm'] = np.array(y_pred_fgsm)
-    #history.history['predictions_pgd'] = np.array(y_pred_pgd)
+    history.history['predictions_pgd'] = np.array(y_pred_pgd)
     history.history['Y_test'] = np.array(y_test)
     history.history['name'] = ModelName
     pickle.dump(history.history, open(resultsFile, "wb" ))
@@ -482,28 +482,27 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     for i in range(x_test.shape[0]):
         clean_gmFILE = os.path.join(imageDir,"examp{}_clean.npy".format(i))
         fgsm_gmFILE = os.path.join(imageDir,"examp{}_fgsm.npy".format(i))
-        #pdg_gmFILE = os.path.join(imageDir,"examp{}_pgd.npy".format(i))
+        pdg_gmFILE = os.path.join(imageDir,"examp{}_pgd.npy".format(i))
         clean_imageFILE = os.path.join(imageDir,"examp{}_clean.png".format(i))
         fgsm_imageFILE = os.path.join(imageDir,"examp{}_fgsm.png".format(i))
         fgsm_delta_imageFILE = os.path.join(imageDir,"examp{}_fgsm_delta.png".format(i))
-        #pgd_imageFILE = os.path.join(imageDir,"examp{}_pgd.png".format(i))
-        #pgd_delta_imageFILE = os.path.join(imageDir,"examp{}_pgd_delta.png".format(i))
+        pgd_imageFILE = os.path.join(imageDir,"examp{}_pgd.png".format(i))
+        pgd_delta_imageFILE = os.path.join(imageDir,"examp{}_pgd_delta.png".format(i))
         clean_image = x_test[i]
         fgsm_image = x_fgsm[i]
         fgsm_delta_image = clean_image - fgsm_image
-        #pgd_image = x_pgd[i]
-        #pgd_delta_image = clean_image - pgd_image
+        pgd_image = x_pgd[i]
+        pgd_delta_image = clean_image - pgd_image
         plt.imsave(clean_imageFILE, clean_image)
         plt.imsave(fgsm_imageFILE, fgsm_image)
         plt.imsave(fgsm_delta_imageFILE, fgsm_delta_image)
-        #plt.imsave(pgd_imageFILE, pgd_image)
-        #plt.imsave(pgd_delta_imageFILE, pgd_delta_image)
+        plt.imsave(pgd_imageFILE, pgd_image)
+        plt.imsave(pgd_delta_imageFILE, pgd_delta_image)
         progress_bar(i/float(x_test.shape[0]))
     print("\n")
 
 
     ########## Adversarial training (FGSM) #############
-    #tf.keras.backend.clear_session()
     ## similar objects as above except these have the extension _fgsm and _pgd
     print("\nRepeating the process, training training on adversarial examples (FGSM)")
     # define the attack generator for training examples
@@ -565,15 +564,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             ]
 
     # Train the network
-    ## CUDA initialization errors when trying to run this with use_multiprocessing=True
-    #history_fgsm = model_fgsm.fit(x=attackGen_train,
-    #    steps_per_epoch= epochSteps,
-    #    epochs=numEpochs,
-    #    validation_data=attackGen_vali,
-    #    callbacks=callbacks_list_fgsm,
-    #    use_multiprocessing=True,
-    #    max_queue_size=nCPU,
-    #    workers=nCPU)
     history_fgsm = model_fgsm.fit(x=attackGen_train,
         steps_per_epoch=epochSteps,
         epochs=numEpochs,
@@ -602,7 +592,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     # Metrics to track the different accuracies.
     test_acc_clean_fgsm = tf.metrics.CategoricalAccuracy()
     test_acc_fgsm_fgsm = tf.metrics.CategoricalAccuracy()
-    #test_acc_pgd_fgsm = tf.metrics.CategoricalAccuracy()
+    test_acc_pgd_fgsm = tf.metrics.CategoricalAccuracy()
 
     # predict on clean test examples
     print("Predicting on clean examples...")
@@ -614,10 +604,10 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     y_pred_fgsm_fgsm = model_fgsm.predict(x_fgsm)
     test_acc_fgsm_fgsm(y_test, y_pred_fgsm_fgsm)
 
-    ## predict on adversarial test examples using PGD
-    #print("Predicting on PGD examples...")
-    #y_pred_pgd_fgsm = model_fgsm.predict(x_pgd)
-    #test_acc_pgd_fgsm(y_test, y_pred_pgd_fgsm)
+    # predict on adversarial test examples using PGD
+    print("Predicting on PGD examples...")
+    y_pred_pgd_fgsm = model_fgsm.predict(x_pgd)
+    test_acc_pgd_fgsm(y_test, y_pred_pgd_fgsm)
 
     ## predict on adversarial test examples using SPSA
     #print("Predicting on adversarial examples...")
@@ -627,7 +617,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     ## print results
     print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean_fgsm.result() * 100))
     print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm_fgsm.result() * 100))
-    #print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd_fgsm.result() * 100))
+    print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd_fgsm.result() * 100))
     #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
 
     ## write results
@@ -636,145 +626,142 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     history_fgsm.history['val_loss'] = np.array(history_fgsm.history['val_loss'])
     history_fgsm.history['predictions'] = np.array(y_pred_fgsm)
     history_fgsm.history['predictions_fgsm'] = np.array(y_pred_fgsm_fgsm)
-    #history_fgsm.history['predictions_pgd'] = np.array(y_pred_pgd_fgsm)
+    history_fgsm.history['predictions_pgd'] = np.array(y_pred_pgd_fgsm)
     history_fgsm.history['Y_test'] = np.array(y_test)
     history_fgsm.history['name'] = ModelName
     pickle.dump(history_fgsm.history, open( resultsFile.replace(".p","_fgsm.p"), "wb" ))
 
 
 
-    ########### Adversarial training (PGD) #############
-    #tf.keras.backend.clear_session()
-    ### similar objects as above except these have the extension _fgsm and _pgd
-    #print("\nRepeating the process, training training on adversarial examples (PGD)")
-    ## define the attack generator for training examples
-    #adv_train_params = copy.deepcopy(TrainParams)
-    #adv_train_params["model"] = model
-    #adv_train_params["attackName"] = "pgd"
-    #adv_train_params["attackParams"] = pgd_params
-    #adv_train_params["attackFraction"] = 1.0
-    #adv_train_params["writeAttacks"] = True
-    #adv_train_params["batchSize"] = 1000
-    #attackGen_train = SequenceBatchGenerator(**adv_train_params)
-    ## attack the entire training set and write adversarial examples to disk
-    #print("Attacking the training set...")
-    #num_batches = int(np.ceil(og_train_numReps/float(adv_train_params["batchSize"])))
-    #for i in range(num_batches):
-    #    x_train,y_train = attackGen_train.__getitem__(i)
-    #    progress_bar(i/float(num_batches))
+    ########## Adversarial training (PGD) #############
+    ## similar objects as above except these have the extension _fgsm and _pgd
+    print("\nRepeating the process, training training on adversarial examples (PGD)")
+    # define the attack generator for training examples
+    adv_train_params = copy.deepcopy(TrainParams)
+    adv_train_params["model"] = model
+    adv_train_params["attackName"] = "pgd"
+    adv_train_params["attackParams"] = pgd_params
+    adv_train_params["attackFraction"] = 1.0
+    adv_train_params["writeAttacks"] = True
+    adv_train_params["batchSize"] = attackBatchSize
+    attackGen_train = SequenceBatchGenerator(**adv_train_params)
+    # attack the entire training set and write adversarial examples to disk
+    print("Attacking the training set in batches of %s..."%(attackBatchSize))
+    num_batches = int(np.ceil(og_train_numReps/float(adv_train_params["batchSize"])))
+    for i in range(num_batches):
+        x_train,y_train = attackGen_train.__getitem__(i)
+        progress_bar(i/float(num_batches))
 
-    ## define the attack generator for validation examples
-    #adv_vali_params = copy.deepcopy(ValiParams)
-    #adv_vali_params["model"] = model
-    #adv_vali_params["attackName"] = "pgd"
-    #adv_vali_params["attackParams"] = pgd_params
-    #adv_vali_params["attackFraction"] = 1.0
-    #adv_vali_params["writeAttacks"] = True
-    #adv_vali_params["batchSize"] = 1000
-    #attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
-    ## attack the entire validation set and write adversarial examples to disk
-    #print("\nAttacking the validation set...")
-    #num_batches = int(np.ceil(og_vali_numReps/float(adv_vali_params["batchSize"])))
-    #for i in range(num_batches):
-    #    x_vali,y_vali = attackGen_vali.__getitem__(i)
-    #    progress_bar(i/float(num_batches))
+    # define the attack generator for validation examples
+    adv_vali_params = copy.deepcopy(ValiParams)
+    adv_vali_params["model"] = model
+    adv_vali_params["attackName"] = "pgd"
+    adv_vali_params["attackParams"] = pgd_params
+    adv_vali_params["attackFraction"] = 1.0
+    adv_vali_params["writeAttacks"] = True
+    adv_vali_params["batchSize"] = attackBatchSize
+    attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
+    # attack the entire validation set and write adversarial examples to disk
+    print("\nAttacking the validation set in batches of %s..."%(attackBatchSize))
+    num_batches = int(np.ceil(og_vali_numReps/float(adv_vali_params["batchSize"])))
+    for i in range(num_batches):
+        x_vali,y_vali = attackGen_vali.__getitem__(i)
+        progress_bar(i/float(num_batches))
 
-    ## reset generator parameters in preperation for model fit
-    #adv_train_params["attackFraction"] = attackFraction
-    #adv_train_params["writeAttacks"] = False
-    #adv_train_params["batchSize"] = og_train_bs
-    #attackGen_train = SequenceBatchGenerator(**adv_train_params)
-    #adv_vali_params["attackFraction"] = attackFraction
-    #adv_vali_params["writeAttacks"] = False
-    #adv_vali_params["batchSize"] = og_vali_bs
-    #attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
+    # reset generator parameters in preperation for model fit
+    adv_train_params["attackFraction"] = attackFraction
+    adv_train_params["writeAttacks"] = False
+    adv_train_params["batchSize"] = og_train_bs
+    attackGen_train = SequenceBatchGenerator(**adv_train_params)
+    adv_vali_params["attackFraction"] = attackFraction
+    adv_vali_params["writeAttacks"] = False
+    adv_vali_params["batchSize"] = og_vali_bs
+    attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
 
-    ### define the new model
-    #model_pgd = ModelFuncPointer(x_train,y_train)
+    ## define the new model
+    model_pgd = ModelFuncPointer(x_train,y_train)
 
-    ### Early stopping and saving the best weights
-    #callbacks_list_pgd = [
-    #        EarlyStopping(
-    #            monitor='val_loss',
-    #            verbose=1,
-    #            min_delta=0.01,
-    #            patience=25),
-    #        ModelCheckpoint(
-    #            filepath=network[1].replace(".h5","_pgd.h5"),
-    #            monitor='val_loss',
-    #            save_best_only=True)
-    #        ]
+    ## Early stopping and saving the best weights
+    callbacks_list_pgd = [
+            EarlyStopping(
+                monitor='val_loss',
+                verbose=1,
+                min_delta=0.01,
+                patience=25),
+            ModelCheckpoint(
+                filepath=network[1].replace(".h5","_pgd.h5"),
+                monitor='val_loss',
+                save_best_only=True)
+            ]
 
-    ## Train the network
-    ### CUDA initialization errors when trying to run this with use_multiprocessing=True
-    #history_pgd = model_pgd.fit(x=attackGen_train,
-    #    steps_per_epoch= epochSteps,
-    #    epochs=numEpochs,
-    #    validation_data=attackGen_vali,
-    #    callbacks=callbacks_list_pgd,
-    #    use_multiprocessing=True,
-    #    max_queue_size=nCPU,
-    #    workers=nCPU)
+    # Train the network
+    ## CUDA initialization errors when trying to run this with use_multiprocessing=True
+    history_pgd = model_pgd.fit(x=attackGen_train,
+        steps_per_epoch= epochSteps,
+        epochs=numEpochs,
+        validation_data=attackGen_vali,
+        callbacks=callbacks_list_pgd,
+        use_multiprocessing=False)
 
-    ## Write the network
-    #if(network != None):
-    #    ##serialize model_pgd to JSON
-    #    model_json_pgd = model_pgd.to_json()
-    #    with open(network[0].replace(".json","_pgd.json"), "w") as json_file:
-    #        json_file.write(model_json_pgd)
+    # Write the network
+    if(network != None):
+        ##serialize model_pgd to JSON
+        model_json_pgd = model_pgd.to_json()
+        with open(network[0].replace(".json","_pgd.json"), "w") as json_file:
+            json_file.write(model_json_pgd)
 
-    ## Load json and create model
-    #if(network != None):
-    #    jsonFILE = open(network[0].replace(".json","_pgd.json"),"r")
-    #    loadedModel_pgd = jsonFILE.read()
-    #    jsonFILE.close()
-    #    model_pgd=model_from_json(loadedModel_pgd)
-    #    model_pgd.load_weights(network[1].replace(".h5","_pgd.h5"))
-    #else:
-    #    print("Error: model_pgd and weights_pgd not loaded")
-    #    sys.exit(1)
+    # Load json and create model
+    if(network != None):
+        jsonFILE = open(network[0].replace(".json","_pgd.json"),"r")
+        loadedModel_pgd = jsonFILE.read()
+        jsonFILE.close()
+        model_pgd=model_from_json(loadedModel_pgd)
+        model_pgd.load_weights(network[1].replace(".h5","_pgd.h5"))
+    else:
+        print("Error: model_pgd and weights_pgd not loaded")
+        sys.exit(1)
 
-    ## Metrics to track the different accuracies.
-    #test_acc_clean_pgd = tf.metrics.CategoricalAccuracy()
-    #test_acc_fgsm_pgd = tf.metrics.CategoricalAccuracy()
-    #test_acc_pgd_pgd = tf.metrics.CategoricalAccuracy()
+    # Metrics to track the different accuracies.
+    test_acc_clean_pgd = tf.metrics.CategoricalAccuracy()
+    test_acc_fgsm_pgd = tf.metrics.CategoricalAccuracy()
+    test_acc_pgd_pgd = tf.metrics.CategoricalAccuracy()
 
-    ## predict on clean test examples
-    #print("Predicting on clean examples...")
-    #y_pred_pgd = model_pgd.predict(x_test)
-    #test_acc_clean_pgd(y_test, y_pred_pgd)
+    # predict on clean test examples
+    print("Predicting on clean examples...")
+    y_pred_pgd = model_pgd.predict(x_test)
+    test_acc_clean_pgd(y_test, y_pred_pgd)
 
-    ## predict on adversarial test examples using FGSM
-    #print("Predicting on FGSM examples...")
-    #y_pred_fgsm_pgd = model_pgd.predict(x_fgsm)
-    #test_acc_fgsm_pgd(y_test, y_pred_fgsm_pgd)
+    # predict on adversarial test examples using FGSM
+    print("Predicting on FGSM examples...")
+    y_pred_fgsm_pgd = model_pgd.predict(x_fgsm)
+    test_acc_fgsm_pgd(y_test, y_pred_fgsm_pgd)
 
-    ## predict on adversarial test examples using PGD
-    #print("Predicting on PGD examples...")
-    #y_pred_pgd_pgd = model_pgd.predict(x_pgd)
-    #test_acc_pgd_pgd(y_test, y_pred_pgd_pgd)
+    # predict on adversarial test examples using PGD
+    print("Predicting on PGD examples...")
+    y_pred_pgd_pgd = model_pgd.predict(x_pgd)
+    test_acc_pgd_pgd(y_test, y_pred_pgd_pgd)
 
-    ### predict on adversarial test examples using SPSA
-    ##print("Predicting on adversarial examples...")
-    ##y_pred_spsa_2= model_2.predict(x_spsa)
-    ##test_acc_spsa_2(y_test, y_pred_spsa_2)
+    ## predict on adversarial test examples using SPSA
+    #print("Predicting on adversarial examples...")
+    #y_pred_spsa_2= model_2.predict(x_spsa)
+    #test_acc_spsa_2(y_test, y_pred_spsa_2)
 
-    ### print results
-    #print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean_pgd.result() * 100))
-    #print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm_pgd.result() * 100))
-    #print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd_pgd.result() * 100))
-    ##print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
+    ## print results
+    print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean_pgd.result() * 100))
+    print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm_pgd.result() * 100))
+    print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd_pgd.result() * 100))
+    #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
 
-    ### write results
-    #print("results_pgd written to: ",resultsFile.replace(".p","_pgd.p"))
-    #history_pgd.history['loss'] = np.array(history_pgd.history['loss'])
-    #history_pgd.history['val_loss'] = np.array(history_pgd.history['val_loss'])
-    #history_pgd.history['predictions'] = np.array(y_pred_pgd)
-    #history_pgd.history['predictions_fgsm'] = np.array(y_pred_fgsm_pgd)
-    #history_pgd.history['predictions_pgd'] = np.array(y_pred_pgd_pgd)
-    #history_pgd.history['Y_test'] = np.array(y_test)
-    #history_pgd.history['name'] = ModelName
-    #pickle.dump(history_pgd.history, open( resultsFile.replace(".p","_pgd.p"), "wb" ))
+    ## write results
+    print("results_pgd written to: ",resultsFile.replace(".p","_pgd.p"))
+    history_pgd.history['loss'] = np.array(history_pgd.history['loss'])
+    history_pgd.history['val_loss'] = np.array(history_pgd.history['val_loss'])
+    history_pgd.history['predictions'] = np.array(y_pred_pgd)
+    history_pgd.history['predictions_fgsm'] = np.array(y_pred_fgsm_pgd)
+    history_pgd.history['predictions_pgd'] = np.array(y_pred_pgd_pgd)
+    history_pgd.history['Y_test'] = np.array(y_test)
+    history_pgd.history['name'] = ModelName
+    pickle.dump(history_pgd.history, open( resultsFile.replace(".p","_pgd.p"), "wb" ))
 
 
 
@@ -785,23 +772,23 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         fOUT.write("===========================\n")
         fOUT.write('test acc on clean examples (%): {:.3f}\n'.format(test_acc_clean.result() * 100))
         fOUT.write('test acc on FGSM adversarial examples (%): {:.3f}\n'.format(test_acc_fgsm.result() * 100))
-        #fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd.result() * 100))
+        fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd.result() * 100))
         fOUT.write("After adversarial training (fgsm attack)\n")
         fOUT.write("===========================\n")
         fOUT.write('test acc on clean examples (%): {:.3f}\n'.format(test_acc_clean_fgsm.result() * 100))
         fOUT.write('test acc on FGSM adversarial examples (%): {:.3f}\n'.format(test_acc_fgsm_fgsm.result() * 100))
-        #fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd_fgsm.result() * 100))
-        #fOUT.write("After adversarial training (pgd attack)\n")
-        #fOUT.write("===========================\n")
-        #fOUT.write('test acc on clean examples (%): {:.3f}\n'.format(test_acc_clean_pgd.result() * 100))
-        #fOUT.write('test acc on FGSM adversarial examples (%): {:.3f}\n'.format(test_acc_fgsm_pgd.result() * 100))
-        #fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd_pgd.result() * 100))
+        fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd_fgsm.result() * 100))
+        fOUT.write("After adversarial training (pgd attack)\n")
+        fOUT.write("===========================\n")
+        fOUT.write('test acc on clean examples (%): {:.3f}\n'.format(test_acc_clean_pgd.result() * 100))
+        fOUT.write('test acc on FGSM adversarial examples (%): {:.3f}\n'.format(test_acc_fgsm_pgd.result() * 100))
+        fOUT.write('test acc on PGD adversarial examples (%): {:.3f}\n'.format(test_acc_pgd_pgd.result() * 100))
 
     return
 
 #-------------------------------------------------------------------------------------------
 
-def runModels_cleverhans_tf2_B(ModelFuncPointer,
+def predict_cleverhans_tf2(ModelFuncPointer,
             ModelName,
             NetworkDir,
             ProjectDir,
@@ -817,7 +804,8 @@ def runModels_cleverhans_tf2_B(ModelFuncPointer,
             network=None,
             nCPU = 1,
             gpuID = 0,
-            learningRate=0.001):
+            learningRate=0.001,
+            paramsID = None):
 
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
 
@@ -842,17 +830,17 @@ def runModels_cleverhans_tf2_B(ModelFuncPointer,
         print("Error: model and weights not loaded")
         sys.exit(1)
 
-
     # Metrics to track the different accuracies.
     test_acc_clean = tf.metrics.CategoricalAccuracy()
     test_acc_fgsm = tf.metrics.CategoricalAccuracy()
-    #test_acc_pgd = tf.metrics.CategoricalAccuracy()
+    test_acc_pgd = tf.metrics.CategoricalAccuracy()
 
     # Read all clean test data into memory
     x_test, y_test = TestGenerator.__getitem__(0)
     predictions = model.predict(x_test)
 
     #replace predictions and Y_test in results file
+
     history= pickle.load(open(resultsFile, "rb"))
     tmp = []
     for gr in test_info["gr"]:
@@ -864,8 +852,9 @@ def runModels_cleverhans_tf2_B(ModelFuncPointer,
     history['predictions'] = np.array(predictions)
 
     #rewrite result file
-    print("new results written to: ",resultsFile)
-    pickle.dump(history, open(resultsFile, "wb"))
+    newResultsFile = resultsFile.replace(".p","_params%s.p"%(paramsID))
+    print("new results written to: ",newResultsFile)
+    pickle.dump(history, open(newResultsFile, "wb"))
     test_acc_clean(y_test, predictions)
 
 
@@ -896,59 +885,61 @@ def runModels_cleverhans_tf2_B(ModelFuncPointer,
     test_acc_fgsm(y_test, predictions_fgsm)
 
     # rewrite new results file
-    print("new results written to: ",resultsFile.replace(".p","_fgsm.p"))
-    pickle.dump(history_fgsm, open(resultsFile.replace(".p","_fgsm.p"), "wb"))
+    newResultsFile = resultsFile.replace(".p","_fgsm_params%s.p"%(paramsID))
+    print("new results written to: ", newResultsFile)
+    pickle.dump(history_fgsm, open(newResultsFile, "wb"))
 
 
-    ############ Prediction on adversarial trained network (PGD) #############
-    ## Load json and create model
-    #if(network != None):
-    #    jsonFILE = open(network[0].replace(".json","_pgd.json"),"r")
-    #    loadedModel_pgd = jsonFILE.read()
-    #    jsonFILE.close()
-    #    model_pgd=model_from_json(loadedModel_pgd)
-    #    model_pgd.load_weights(network[1].replace(".h5","_pgd.h5"))
-    #else:
-    #    print("Error: model_pgd and weights_pgd not loaded")
-    #    sys.exit(1)
+    ########### Prediction on adversarial trained network (PGD) #############
+    # Load json and create model
+    if(network != None):
+        jsonFILE = open(network[0].replace(".json","_pgd.json"),"r")
+        loadedModel_pgd = jsonFILE.read()
+        jsonFILE.close()
+        model_pgd=model_from_json(loadedModel_pgd)
+        model_pgd.load_weights(network[1].replace(".h5","_pgd.h5"))
+    else:
+        print("Error: model_pgd and weights_pgd not loaded")
+        sys.exit(1)
 
-    #predictions_pgd = model_pgd.predict(x_test)
+    predictions_pgd = model_pgd.predict(x_test)
 
-    ##replace predictions and T_test in results file
-    #history_pgd = pickle.load(open(resultsFile.replace(".p","_pgd.p"), "rb"))
-    #tmp = []
-    #for gr in test_info["gr"]:
-    #    if gr > 0.0:
-    #        tmp.append([0.0,1.0])
-    #    else:
-    #        tmp.append([1.0,0.0])
-    #history_pgd["Y_test"] = np.array(tmp)
-    #history_pgd['predictions'] = np.array(predictions_pgd)
-    #test_acc_pgd(y_test, predictions_pgd)
+    #replace predictions and T_test in results file
+    history_pgd = pickle.load(open(resultsFile.replace(".p","_pgd.p"), "rb"))
+    tmp = []
+    for gr in test_info["gr"]:
+        if gr > 0.0:
+            tmp.append([0.0,1.0])
+        else:
+            tmp.append([1.0,0.0])
+    history_pgd["Y_test"] = np.array(tmp)
+    history_pgd['predictions'] = np.array(predictions_pgd)
+    test_acc_pgd(y_test, predictions_pgd)
 
-    ### print results
-    #print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean.result() * 100))
-    #print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm.result() * 100))
-    #print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd.result() * 100))
+    ## print results
+    print('test acc on clean examples (%): {:.3f}'.format(test_acc_clean.result() * 100))
+    print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm.result() * 100))
+    print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd.result() * 100))
 
-    ## rewrite new results file
-    #print("new results written to: ",resultsFile.replace(".p","_pgd.p"))
-    #pickle.dump(history_pgd, open(resultsFile.replace(".p","_pgd.p"), "wb"))
+    # rewrite new results file
+    newResultsFile = resultsFile.replace(".p","_pgd_params%s.p"%(paramsID))
+    print("new results written to: ", newResultsFile)
+    pickle.dump(history_pgd, open(newResultsFile, "wb"))
 
 
 
     ######### write log ###########
-    outLog = resultsFile.replace(".p","_logB.txt")
+    outLog = resultsFile.replace(".p","_log_params%s.txt"%(paramsID))
     with open(outLog, "w") as fOUT:
         fOUT.write("Before adversarial training\n")
         fOUT.write("===========================\n")
-        fOUT.write('test acc on testB examples (%): {:.3f}\n'.format(test_acc_clean.result() * 100))
+        fOUT.write('test acc on test_paramsB examples (%): {:.3f}\n'.format(test_acc_clean.result() * 100))
         fOUT.write("After adversarial training (fgsm attack)\n")
         fOUT.write("===========================\n")
-        fOUT.write('test acc on testB examples (%): {:.3f}\n'.format(test_acc_fgsm.result() * 100))
-        #fOUT.write("After adversarial training (pgd attack)\n")
-        #fOUT.write("===========================\n")
-        #fOUT.write('test acc on testB examples (%): {:.3f}\n'.format(test_acc_clean_pgd.result() * 100))
+        fOUT.write('test acc on test_paramsB examples (%): {:.3f}\n'.format(test_acc_fgsm.result() * 100))
+        fOUT.write("After adversarial training (pgd attack)\n")
+        fOUT.write("===========================\n")
+        fOUT.write('test acc on test_paramsB examples (%): {:.3f}\n'.format(test_acc_pgd.result() * 100))
 
     return None
 

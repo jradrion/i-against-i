@@ -43,10 +43,10 @@ def main():
     ## Define and create the new training rep directories
     trainDir_fgsm = os.path.join(projectDir,"train_fgsm")
     valiDir_fgsm = os.path.join(projectDir,"vali_fgsm")
-    #trainDir_pgd = os.path.join(projectDir,"train_pgd")
-    #valiDir_pgd = os.path.join(projectDir,"vali_pgd")
-    for p in [trainDir_fgsm,valiDir_fgsm]:
-    #for p in [trainDir_fgsm,trainDir_pgd,valiDir_fgsm,valiDir_pgd]:
+    trainDir_pgd = os.path.join(projectDir,"train_pgd")
+    valiDir_pgd = os.path.join(projectDir,"vali_pgd")
+    #for p in [trainDir_fgsm,valiDir_fgsm]:
+    for p in [trainDir_fgsm,trainDir_pgd,valiDir_fgsm,valiDir_pgd]:
         if args.rep:
             p += "_rep%s"%(args.rep)
         if not os.path.exists(p):
@@ -151,7 +151,7 @@ def main():
     ### Plot results of predictions on test set
     plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig)
     plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_fgsm.p"),saveas=test_resultFig.replace(".pdf","_fgsm.pdf"))
-    ##plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"))
+    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"))
 
 
     print("\n***FINISHED!***\n")
