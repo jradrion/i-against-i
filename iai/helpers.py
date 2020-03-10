@@ -396,7 +396,8 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             epochs=numEpochs,
             validation_data=ValidationGenerator,
             use_multiprocessing=False,
-            callbacks=callbacks_list)
+            callbacks=callbacks_list,
+            verbose=2)
 
         # Write the network
         if(network != None):
@@ -614,7 +615,8 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             epochs=numEpochs,
             validation_data=attackGen_vali,
             callbacks=callbacks_list_fgsm,
-            use_multiprocessing=False)
+            use_multiprocessing=False,
+            verbose=2)
 
         # Write the network
         if(network != None):
@@ -747,7 +749,8 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             epochs=numEpochs,
             validation_data=attackGen_vali,
             callbacks=callbacks_list_pgd,
-            use_multiprocessing=False)
+            use_multiprocessing=False,
+            verbose=2)
 
         # Write the network
         if(network != None):
