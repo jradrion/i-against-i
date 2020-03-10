@@ -11,6 +11,10 @@ def main():
     parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
     parser.add_argument('-a','--attackFraction',dest='attackFraction',help='Fraction of training set to be comprised of adversarial examples', type=float, default=0.0)
     parser.add_argument('-ab','--attackBatchSize',dest='attackBatchSize',help='Size of the batch for attacking the train/vailidation sets', type=int, default=1000)
+    parser.add_argument('--fgsm',dest='fgsm',help='Train on FGSM attacked examples',default=False,action='store_true')
+    parser.add_argument('--pgd',dest='pgd',help='Train on PGD attacked examples',default=False,action='store_true')
+    parser.add_argument('--cnn',dest='cnn',help='Train using a 1D CNN',default=False,action='store_true')
+    parser.add_argument('--gru',dest='gru',help='Train using a bidirectinal GRU',default=False,action='store_true')
     parser.add_argument('-im','--initModel',dest='model',help='Path to the initialization model',default=None)
     parser.add_argument('-iw','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
     parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
@@ -20,8 +24,7 @@ def main():
     parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
     parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
     args = parser.parse_args()
- 
-
+    
     ### Set seed
     if args.seed:
         os.environ['PYTHONHASHSEED']=str(args.seed)
@@ -41,16 +44,24 @@ def main():
     
     
     ## Define and create the new training rep directories
-    trainDir_fgsm = os.path.join(projectDir,"train_fgsm")
-    valiDir_fgsm = os.path.join(projectDir,"vali_fgsm")
-    trainDir_pgd = os.path.join(projectDir,"train_pgd")
-    valiDir_pgd = os.path.join(projectDir,"vali_pgd")
-    #for p in [trainDir_fgsm,valiDir_fgsm]:
-    for p in [trainDir_fgsm,trainDir_pgd,valiDir_fgsm,valiDir_pgd]:
-        if args.rep:
-            p += "_rep%s"%(args.rep)
-        if not os.path.exists(p):
-            os.makedirs(p)
+    if args.fgsm:
+        trainDir_fgsm = os.path.join(projectDir,"train_fgsm")
+        valiDir_fgsm = os.path.join(projectDir,"vali_fgsm")
+        testDir_fgsm = os.path.join(projectDir,"test_fgsm")
+        for p in [trainDir_fgsm,valiDir_fgsm,testDir_fgsm]:
+            if args.rep:
+                p += "_rep%s"%(args.rep)
+            if not os.path.exists(p):
+                os.makedirs(p)
+    if args.pgd:
+        trainDir_pgd = os.path.join(projectDir,"train_pgd")
+        valiDir_pgd = os.path.join(projectDir,"vali_pgd")
+        testDir_pgd = os.path.join(projectDir,"test_pgd")
+        for p in [trainDir_pgd,valiDir_pgd,testDir_pgd]:
+            if args.rep:
+                p += "_rep%s"%(args.rep)
+            if not os.path.exists(p):
+                os.makedirs(p)
     
     if args.rep:
         networkDir_OG = os.path.join(projectDir,"networks")
@@ -126,13 +137,20 @@ def main():
 
     
     # Train network
-    runModels_cleverhans_tf2(ModelFuncPointer=iaiGRU_categorical_crossentropy_noPos,
-            ModelName="iaiGRU_categorical_crossentropy_noPos",
+    if args.gru:
+        mfp=iaiGRU_categorical_crossentropy_noPos
+        mn="iaiGRU_categorical_crossentropy_noPos"
+    if args.cnn:
+        mfp=iaiCNN_categorical_crossentropy_noPos
+        mn="iaiCNN_categorical_crossentropy_noPos"
+    runModels_cleverhans_tf2(ModelFuncPointer=mfp,
+            ModelName=mn,
             NetworkDir=networkDir,
             ProjectDir=projectDir,
             TrainGenerator=train_sequence,
             TrainParams=bds_train_params,
             ValiParams=bds_vali_params,
+            TestParams=bds_test_params,
             ValidationGenerator=vali_sequence,
             TestGenerator=test_sequence,
             resultsFile=test_resultFile,
@@ -146,12 +164,16 @@ def main():
             learningRate=0.001,
             attackFraction=args.attackFraction,
             attackBatchSize=args.attackBatchSize,
-            rep=args.rep) 
+            rep=args.rep,
+            FGSM=args.fgsm,
+            PGD=args.pgd) 
     
     ### Plot results of predictions on test set
     plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig)
-    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_fgsm.p"),saveas=test_resultFig.replace(".pdf","_fgsm.pdf"))
-    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"))
+    if args.fgsm:
+        plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_fgsm.p"),saveas=test_resultFig.replace(".pdf","_fgsm.pdf"))
+    if args.pgd:
+        plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"))
 
 
     print("\n***FINISHED!***\n")

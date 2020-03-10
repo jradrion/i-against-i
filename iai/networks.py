@@ -4,40 +4,39 @@ Authors: Jeff Adrion
 
 from iai.imports import *
 
-def iaiCNN_categorical_crossentropy(inputShape,y):
-
-    haps,pos = inputShape
-
-    numSNPs = haps[0].shape[0]
-    numSamps = haps[0].shape[1]
-    numPos = pos[0].shape[0]
-
-    img_1_inputs = layers.Input(shape=(numSNPs,numSamps))
-
-    h = layers.Conv1D(1250, kernel_size=2, activation='relu', name='conv1_1')(img_1_inputs)
-    h = layers.Conv1D(512, kernel_size=2, dilation_rate=1, activation='relu')(h)
-    h = layers.AveragePooling1D(pool_size=2)(h)
-    h = layers.Dropout(0.25)(h)
-    h = layers.Conv1D(512, kernel_size=2, activation='relu')(h)
-    h = layers.AveragePooling1D(pool_size=2)(h)
-    h = layers.Dropout(0.25)(h)
-    h = layers.Flatten()(h)
-
-    loc_input = layers.Input(shape=(numPos,))
-    m2 = layers.Dense(64,name="m2_dense1")(loc_input)
-    m2 = layers.Dropout(0.1)(m2)
-
-    h =  layers.concatenate([h,m2])
-    h = layers.Dense(128,activation='relu')(h)
-    h = layers.Dropout(0.2)(h)
-    output = layers.Dense(2,kernel_initializer='normal',name="softmax",activation='softmax')(h)
-
-    model = Model(inputs=[img_1_inputs,loc_input], outputs=[output])
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    model.summary()
-
-    return model
-
+#def iaiCNN_categorical_crossentropy(inputShape,y):
+#
+#    haps,pos = inputShape
+#
+#    numSNPs = haps[0].shape[0]
+#    numSamps = haps[0].shape[1]
+#    numPos = pos[0].shape[0]
+#
+#    img_1_inputs = layers.Input(shape=(numSNPs,numSamps))
+#
+#    h = layers.Conv1D(1250, kernel_size=2, activation='relu', name='conv1_1')(img_1_inputs)
+#    h = layers.Conv1D(512, kernel_size=2, dilation_rate=1, activation='relu')(h)
+#    h = layers.AveragePooling1D(pool_size=2)(h)
+#    h = layers.Dropout(0.25)(h)
+#    h = layers.Conv1D(512, kernel_size=2, activation='relu')(h)
+#    h = layers.AveragePooling1D(pool_size=2)(h)
+#    h = layers.Dropout(0.25)(h)
+#    h = layers.Flatten()(h)
+#
+#    loc_input = layers.Input(shape=(numPos,))
+#    m2 = layers.Dense(64,name="m2_dense1")(loc_input)
+#    m2 = layers.Dropout(0.1)(m2)
+#
+#    h =  layers.concatenate([h,m2])
+#    h = layers.Dense(128,activation='relu')(h)
+#    h = layers.Dropout(0.2)(h)
+#    output = layers.Dense(2,kernel_initializer='normal',name="softmax",activation='softmax')(h)
+#
+#    model = Model(inputs=[img_1_inputs,loc_input], outputs=[output])
+#    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+#    model.summary()
+#
+#    return model
 
 def iaiCNN_categorical_crossentropy_noPos(x,y):
 
@@ -90,7 +89,8 @@ def iaiGRU_categorical_crossentropy_noPos(x,y):
     #----------------------------------------------------
 
     model = Model(inputs=[genotype_inputs], outputs=[output])
-    model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    #model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
     model.summary()
 
     return model
