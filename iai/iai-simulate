@@ -17,6 +17,7 @@ def main():
     parser.add_argument('-ne_lo','--assumedNe_lo',dest='ne_lo',help='Lower bound of assumed effective population size',type=float,default=0.004)
     parser.add_argument('-ne_hi','--assumedNe_hi',dest='ne_hi',help='Upper bound of assumed effective population size',type=float,default=0.004)
     parser.add_argument('-f','--fractionGrowth',dest='fGrowth',help='Fraction of training examples that will be simulated under a model of  exponential growth',type=float,default=0.5)
+    parser.add_argument('--admixture',help='run binary classifier on admixture instread of population size growth',default=False, action='store_true')
     parser.add_argument('--cLen',dest='cLen',help='Length of chromosome to simulate',type=int,default=1000000)
     parser.add_argument('--sam',dest='sam',help='sample size',type=int,default=10)
     parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
@@ -36,8 +37,7 @@ def main():
         projectDir = os.getcwd()
     else:
         projectDir = args.outDir
-
-
+    
     ### Set seed
     if args.seed:
         os.environ['PYTHONHASHSEED']=str(args.seed)
@@ -91,6 +91,7 @@ def main():
         'maskThresh':None,
         'phased':args.phased,
         'fractionGrowth': 1,
+        'admixture': args.admixture,
         'seed':args.seed
               }
 
@@ -100,6 +101,8 @@ def main():
     print("\nDetermine relative Ne for simulations with and without growth...")
     dg_trial.simulateAndProduceTrees(numReps=args.nTrain,direc=trialDir,simulator="msprime",nProc=nProc)
     
+   
+
     DsInfoDir = pickle.load(open(os.path.join(trialDir,"info.p"),"rb"))
     S = DsInfoDir["segSites"]
     a=0
@@ -111,7 +114,6 @@ def main():
     
     print("Ne inferred from thetaW:",Ne_fromTheta)
     
-
     dg_params = {'N':nSamps,
         'Ne_growth_lo':assumedNe_lo,
         'Ne_growth_hi':assumedNe_hi,
@@ -127,6 +129,7 @@ def main():
         'maskThresh':None,
         'phased':args.phased,
         'fractionGrowth': args.fGrowth,
+        'admixture': args.admixture,
         'seed':args.seed
               }
     

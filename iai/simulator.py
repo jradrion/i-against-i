@@ -39,6 +39,7 @@ class Simulator(object):
         priorHighsGr = 1e-8,
         fractionGrowth = 0.5,
         ChromosomeLength = 1e5,
+        admixture = None,
         MspDemographics = None,
         winMasks = None,
         mdMask = None,
@@ -72,6 +73,7 @@ class Simulator(object):
         self.mdMask = mdMask
         self.maskThresh = maskThresh
         self.phased = None
+        self.admixture = admixture
         self.phaseError = phaseError
         self.hotspots = hotspots
         self.nHotWins = nHotWins
@@ -138,38 +140,89 @@ class Simulator(object):
                 )
 
         else:
-            if GR != 0.0:
-                PC = [msp.PopulationConfiguration(
-                    sample_size=self.N,
-                    initial_size=NE,
-                    growth_rate=GR)]
+            if not self.admixture:
+                if GR != 0.0:
+                    PC = [msp.PopulationConfiguration(
+                        sample_size=self.N,
+                        initial_size=NE,
+                        growth_rate=GR)]
 
-                ts = msp.simulate(
-                    random_seed = self.seed,
-                    length=self.ChromosomeLength,
-                    mutation_rate=MR,
-                    recombination_rate=RR,
-                    population_configurations = PC,
-                )
+                    ts = msp.simulate(
+                        random_seed = self.seed,
+                        length=self.ChromosomeLength,
+                        mutation_rate=MR,
+                        recombination_rate=RR,
+                        population_configurations = PC,
+                    )
+                else:
+                    ts = msp.simulate(
+                        random_seed = self.seed,
+                        sample_size = self.N,
+                        Ne = self.Ne_noGrowth,
+                        length=self.ChromosomeLength,
+                        mutation_rate=MR,
+                        recombination_rate=RR
+                    )
             else:
-                ts = msp.simulate(
-                    random_seed = self.seed,
-                    sample_size = self.N,
-                    Ne = self.Ne_noGrowth,
-                    length=self.ChromosomeLength,
-                    mutation_rate=MR,
-                    recombination_rate=RR
-                )
+                #reciprocal migration at rate GR
+                if GR != 0.0:
+                    PC = [
+                            msp.PopulationConfiguration(
+                                sample_size=self.N,
+                                initial_size=NE),
 
-        ##write tree sequence
-        #TSpath = os.path.join(direc,str(simNum) + ".ts")
-        #ts.dump(TSpath)
-        ##print(GR, ts.get_num_trees())
+                            msp.PopulationConfiguration(
+                                sample_size=self.N,
+                                initial_size=NE)
+                            ]
+
+                    MM = [[      0, GR],
+                            [GR,       0]]
+
+                    DE = []
+                    DD = msp.DemographyDebugger(
+                            population_configurations=PC,
+                            migration_matrix=MM,
+                            demographic_events=DE)
+                    #DD.print_history()
+                    ts = msp.simulate(
+                        random_seed = self.seed,
+                        length=self.ChromosomeLength,
+                        mutation_rate=MR,
+                        recombination_rate=RR,
+                        population_configurations = PC,
+                        migration_matrix = MM,
+                        demographic_events = DE
+
+                    )
+                else:
+                    ts = msp.simulate(
+                        random_seed = self.seed,
+                        sample_size = self.N,
+                        Ne = self.Ne_noGrowth,
+                        length=self.ChromosomeLength,
+                        mutation_rate=MR,
+                        recombination_rate=RR
+                    )
 
 
         # Convert tree sequence to genotype matrix, and position matrix
-        H = ts.genotype_matrix()
-        P = np.array([s.position for s in ts.sites()],dtype='float32')
+        if self.admixture: # for migration matrix simulations with two popuulations, extract variant matrix from population 0 only
+            ts_pop0 = ts.simplify(ts.samples(population=0))
+            H_pop0 = ts_pop0.genotype_matrix()
+            P_pop0 = np.array([s.position for s in ts_pop0.sites()],dtype='float32')
+
+            # mask all invariant sites
+            zero_mask = ~np.all(H_pop0 == 0,axis=1)
+            H_pop0 = H_pop0[zero_mask]
+            P_pop0 = P_pop0[zero_mask]
+            one_mask = ~np.all(H_pop0 == 1,axis=1)
+            H = H_pop0[one_mask]
+            P = P_pop0[one_mask]
+        else:
+            H = ts.genotype_matrix()
+            P = np.array([s.position for s in ts.sites()],dtype='float32')
+
 
         # "Unphase" genotypes
         if not self.phased:
