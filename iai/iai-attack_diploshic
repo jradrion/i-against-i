@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+from iai.imports import *
+from iai.helpers import *
+from iai.sequenceBatchGenerator import *
+from iai.networks import *
+
+
+## modules for diploshic compat
+from sklearn.model_selection import train_test_split
+
+
+def attack_fvecs(f, numSubWins, trainingDir, attackDir, attackFraction, attackBatchSize, fgsm_params, model):
+    """take the fvec file, completed the attack, and write a new file for adversarial training"""
+    
+    ## load file and attack
+    F = np.loadtxt(os.path.join(trainingDir,f),skiprows=1)
+    nDims = int(F.shape[1] / numSubWins)
+    F1 = np.reshape(F,(F.shape[0],nDims,numSubWins,1))
+    num_batches = int(F1.shape[0] / attackBatchSize)
+    start=0
+    F1_attacked = []
+    for i in range(num_batches):
+        end=start+attackBatchSize
+        X_train = F1[start:end]
+        X_attacked = fast_gradient_method(model, X_train, **fgsm_params)
+        F1_attacked.append(X_attacked)
+        start+=attackBatchSize
+    F1_attacked = np.concatenate(F1_attacked)
+    
+    ## randomly replace attackFraction
+    mask = np.array([False]*F1.shape[0])
+    trues = np.random.choice(np.arange(F1.shape[0]), size = int(F1.shape[0] * attackFraction), replace=False)
+    mask[trues] = True
+    F1[mask] = F1_attacked[mask]
+    
+    ## reshape to original 
+    F2 = F1.reshape(F.shape)
+    
+    ## write new file
+    inFILE, outFILE = os.path.join(trainingDir,f), os.path.join(attackDir,f)
+    ct=0
+    with open(inFILE, "r") as fIN, open(outFILE, "w") as fOUT:
+        for line in fIN:
+            if ct == 0:
+                fOUT.write(line)
+            else:
+                fOUT.write("\t".join(str(x) for x in F2[ct-1])+"\n")
+            ct+=1
+    return 
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d','--trainDir',dest='trainDir',help='Path to directory of diploshic trainingsets',default=None)
+    parser.add_argument('-a','--attackFraction',dest='attackFraction',help='Fraction of training set to be comprised of adversarial examples', type=float, default=0.0)
+    parser.add_argument('-ab','--attackBatchSize',dest='attackBatchSize',help='Size of the batch for attacking the train/vailidation sets', type=int, default=1000)
+    parser.add_argument('--fgsm',dest='fgsm',help='Train on FGSM attacked examples',default=False,action='store_true')
+    parser.add_argument('--pgd',dest='pgd',help='Train on PGD attacked examples',default=False,action='store_true')
+    parser.add_argument('-im','--initModel',dest='model',help='Path to the initialization model',default=None)
+    parser.add_argument('-iw','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
+    parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
+    parser.add_argument('-r','--rep',dest='rep',help='Training replicate number',type=int,default=None)
+    parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
+    parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
+    args = parser.parse_args()
+    
+    ### Set seed
+    if args.seed:
+        os.environ['PYTHONHASHSEED']=str(args.seed)
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        tf.random.set_seed(args.seed)
+        os.environ['TF_DETERMINISTIC_OPS'] = '1'
+        os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+
+    
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpuID)
+
+
+    ## The following code block appears necessary for running with tf2 and cudnn
+    from tensorflow.compat.v1 import ConfigProto
+    from tensorflow.compat.v1 import Session
+    config = ConfigProto()
+    config.gpu_options.allow_growth = True
+    Session(config=config)
+    ###
+    
+    
+    ## load model
+    jsonFILE = open(args.model,"r")
+    loadedModel = jsonFILE.read()
+    jsonFILE.close()
+    model=model_from_json(loadedModel)
+    model.load_weights(args.weights)
+    
+
+    ## define attack params
+    af = args.attackFraction 
+    ab = args.attackBatchSize
+    fgsm_params = {'eps': 0.01,
+                'norm': np.inf}
+    
+    
+    ## copying much of the following code from diploshic for preprocessing
+    numSubWins = 11
+    if args.fgsm:
+        trainingDir = args.trainDir
+        attackDir = os.path.join(trainingDir,"fgsm_af%s_rep%s/" %(af, args.rep))
+        if not os.path.exists(attackDir):
+            os.mkdir(attackDir)
+
+        
+        ## read in each of the files, attack and write the attacks to the disk
+        files = ["hard.fvec", "neut.fvec", "soft.fvec", "linkedSoft.fvec", "linkedHard.fvec"]
+        for f in files:
+            attack_fvecs(f, numSubWins, trainingDir, attackDir, af, ab, fgsm_params, model)
+            print("Attack completed: %s" %(os.path.join(attackDir, f)))
+
+    print("\n***FINISHED!***\n")
+
+if __name__ == "__main__":
+	main()
