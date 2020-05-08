@@ -16,7 +16,7 @@ def attack_fvecs(f, numSubWins, trainingDir, attackDir, attackFraction, attackBa
     F = np.loadtxt(os.path.join(trainingDir,f),skiprows=1)
     nDims = int(F.shape[1] / numSubWins)
     F1 = np.reshape(F,(F.shape[0],nDims,numSubWins,1))
-    num_batches = int(F1.shape[0] / attackBatchSize)
+    num_batches = math.ceil(F1.shape[0] / attackBatchSize)
     start=0
     F1_attacked = []
     for i in range(num_batches):
