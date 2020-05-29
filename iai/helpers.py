@@ -321,7 +321,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             network=None,
             nCPU = 1,
             gpuID = 0,
-            learningRate=0.001,
             attackFraction=0.0,
             attackBatchSize=None,
             rep=None,
@@ -860,7 +859,6 @@ def predict_cleverhans_tf2(ModelFuncPointer,
             network=None,
             nCPU = 1,
             gpuID = 0,
-            learningRate=0.001,
             paramsID = None,
             FGSM=False,
             PGD=False):
@@ -1294,7 +1292,7 @@ def plotResultsSoftmax2(resultsFile,saveas):
 
 #-------------------------------------------------------------------------------------------
 
-def plotResultsSoftmax2Heatmap(resultsFile,saveas):
+def plotResultsSoftmax2Heatmap(resultsFile,saveas,admixture):
 
     plt.rc('font', family='serif', serif='Times')
     plt.rc('xtick', labelsize=6)
@@ -1335,7 +1333,10 @@ def plotResultsSoftmax2Heatmap(resultsFile,saveas):
     labels = "Cross entropy = " + str(ce)
 
     data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
-    rowLabels = ["Constant", "Growth"]
+    if admixture:
+        rowLabels = ["No admixture", "Admixture"]
+    else:
+        rowLabels = ["Constant", "Growth"]
     heatmap = axes[0].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
     cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[0])
     cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
@@ -1348,7 +1349,10 @@ def plotResultsSoftmax2Heatmap(resultsFile,saveas):
 
     plt.tick_params(axis='y', which='both', right='off')
     plt.tick_params(axis='x', which='both', direction='out')
-    axes[0].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+    if admixture:
+        axes[0].set_xticklabels(["No admixture", "Admixture"], minor=False, fontsize=6)
+    else:
+        axes[0].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
 
 
     axes[0].set_yticklabels(rowLabels, minor=False, fontsize=6)
@@ -1381,7 +1385,7 @@ def plotResultsSoftmax2Heatmap(resultsFile,saveas):
 
 #-------------------------------------------------------------------------------------------
 
-def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
+def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas, admixture):
 
     plt.rc('font', family='serif', serif='Times')
     plt.rc('xtick', labelsize=6)
@@ -1422,7 +1426,10 @@ def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
     labels = "Cross entropy = " + str(ce)
 
     data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
-    rowLabels = ["Constant", "Growth"]
+    if admixture:
+        rowLabels = ["No admixture", "Admixture"]
+    else:
+        rowLabels = ["Constant", "Growth"]
     heatmap = axes[0].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
     cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[0])
     cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
@@ -1435,7 +1442,10 @@ def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
 
     plt.tick_params(axis='y', which='both', right='off')
     plt.tick_params(axis='x', which='both', direction='out')
-    axes[0].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+    if admixture:
+        axes[0].set_xticklabels(["No admixture", "Admixture"], minor=False, fontsize=6)
+    else:
+        axes[0].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
 
 
     axes[0].set_yticklabels(rowLabels, minor=False, fontsize=6)
@@ -1483,7 +1493,10 @@ def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
     labels = "Cross entropy = " + str(ce)
 
     data=np.array([[const_const/float(const_total),const_expan/float(const_total)],[expan_const/float(expan_total),expan_expan/float(expan_total)]])
-    rowLabels = ["Constant", "Growth"]
+    if admixture:
+        rowLabels = ["No admixture", "Admixture"]
+    else:
+        rowLabels = ["Constant", "Growth"]
     heatmap = axes[1].pcolor(data, cmap=plt.cm.Blues, vmin=0.0, vmax=1.0)
     cbar = plt.colorbar(heatmap, cmap=plt.cm.Blues, ax=axes[1])
     cbar.set_label('Proportion assigned to class', rotation=270, labelpad=20)
@@ -1496,7 +1509,10 @@ def plotResultsSoftmax2HeatmapMis(resultsFile, resultsFile2, saveas):
 
     plt.tick_params(axis='y', which='both', right='off')
     plt.tick_params(axis='x', which='both', direction='out')
-    axes[1].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
+    if admixture:
+        axes[1].set_xticklabels(["No admixture", "Admixture"], minor=False, fontsize=6)
+    else:
+        axes[1].set_xticklabels(["Constant", "Growth"], minor=False, fontsize=6)
 
 
     axes[1].set_yticklabels(rowLabels, minor=False, fontsize=6)

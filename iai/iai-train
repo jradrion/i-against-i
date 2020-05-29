@@ -3,7 +3,8 @@ from iai.imports import *
 from iai.helpers import *
 from iai.sequenceBatchGenerator import *
 from iai.networks import *
-
+from iai.simulator import *
+from iai.trainer import *
 
 def main():
     parser = argparse.ArgumentParser()
@@ -11,6 +12,7 @@ def main():
     parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
     parser.add_argument('-a','--attackFraction',dest='attackFraction',help='Fraction of training set to be comprised of adversarial examples', type=float, default=0.0)
     parser.add_argument('-ab','--attackBatchSize',dest='attackBatchSize',help='Size of the batch for attacking the train/vailidation sets', type=int, default=1000)
+    parser.add_argument('--adaptive',help='use adaptive training instead of adversarial training',default=False, action='store_true')
     parser.add_argument('--fgsm',dest='fgsm',help='Train on FGSM attacked examples',default=False,action='store_true')
     parser.add_argument('--pgd',dest='pgd',help='Train on PGD attacked examples',default=False,action='store_true')
     parser.add_argument('--cnn',dest='cnn',help='Train using a 1D CNN',default=False,action='store_true')
@@ -71,6 +73,8 @@ def main():
     else:
         networkDir = os.path.join(projectDir,"networks")
     
+    admixture=pickle.load(open(os.path.join(networkDir,"simPars.p"), "rb"))["admixture"]
+
     trainDir = os.path.join(projectDir,"train")
     valiDir = os.path.join(projectDir,"vali")
     testDir = os.path.join(projectDir,"test")
@@ -95,6 +99,7 @@ def main():
 
     
     bds_train_params = {
+        'adaptive':args.adaptive,
         'treesDirectory':trainDir,
         'targetNormalization':"zscore",
         'batchSize': 64,
@@ -143,37 +148,59 @@ def main():
     if args.cnn:
         mfp=iaiCNN_categorical_crossentropy_noPos
         mn="iaiCNN_categorical_crossentropy_noPos"
-    runModels_cleverhans_tf2(ModelFuncPointer=mfp,
-            ModelName=mn,
-            NetworkDir=networkDir,
-            ProjectDir=projectDir,
-            TrainGenerator=train_sequence,
-            TrainParams=bds_train_params,
-            ValiParams=bds_vali_params,
-            TestParams=bds_test_params,
-            ValidationGenerator=vali_sequence,
-            TestGenerator=test_sequence,
-            resultsFile=test_resultFile,
-            initModel=args.model,
-            initWeights=args.weights,
-            network=[modelSave,weightsSave],
-            numEpochs=args.nEpochs,
-            validationSteps=args.nValSteps,
-            nCPU=args.nCPU,
-            gpuID=args.gpuID,
-            learningRate=0.001,
-            attackFraction=args.attackFraction,
-            attackBatchSize=args.attackBatchSize,
-            rep=args.rep,
-            FGSM=args.fgsm,
-            PGD=args.pgd) 
+    if args.adaptive:
+        runModels_adaptive(ModelFuncPointer=mfp,
+                ModelName=mn,
+                TestDir=testDir,
+                NetworkDir=networkDir,
+                ProjectDir=projectDir,
+                TrainGenerator=train_sequence,
+                TrainParams=bds_train_params,
+                ValiParams=bds_vali_params,
+                TestParams=bds_test_params,
+                ValidationGenerator=vali_sequence,
+                TestGenerator=test_sequence,
+                resultsFile=test_resultFile,
+                initModel=args.model,
+                initWeights=args.weights,
+                network=[modelSave,weightsSave],
+                numEpochs=args.nEpochs,
+                validationSteps=args.nValSteps,
+                nCPU=args.nCPU,
+                gpuID=args.gpuID,
+                rep=args.rep,
+                admixture=admixture) 
+    else:
+        runModels_cleverhans_tf2(ModelFuncPointer=mfp,
+                ModelName=mn,
+                NetworkDir=networkDir,
+                ProjectDir=projectDir,
+                TrainGenerator=train_sequence,
+                TrainParams=bds_train_params,
+                ValiParams=bds_vali_params,
+                TestParams=bds_test_params,
+                ValidationGenerator=vali_sequence,
+                TestGenerator=test_sequence,
+                resultsFile=test_resultFile,
+                initModel=args.model,
+                initWeights=args.weights,
+                network=[modelSave,weightsSave],
+                numEpochs=args.nEpochs,
+                validationSteps=args.nValSteps,
+                nCPU=args.nCPU,
+                gpuID=args.gpuID,
+                attackFraction=args.attackFraction,
+                attackBatchSize=args.attackBatchSize,
+                rep=args.rep,
+                FGSM=args.fgsm,
+                PGD=args.pgd) 
     
-    ### Plot results of predictions on test set
-    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig)
-    if args.fgsm:
-        plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_fgsm.p"),saveas=test_resultFig.replace(".pdf","_fgsm.pdf"))
-    if args.pgd:
-        plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"))
+        ### Plot results of predictions on test set
+        plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig,admixture=admixture)
+        if args.fgsm:
+            plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_fgsm.p"),saveas=test_resultFig.replace(".pdf","_fgsm.pdf"),admixture=admixture)
+        if args.pgd:
+            plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"),admixture=admixture)
 
 
     print("\n***FINISHED!***\n")

@@ -46,9 +46,8 @@ class Simulator(object):
         maskThresh = 1.0,
         phased = None,
         phaseError = None,
-        hotspots = False,
-        nHotWins = 10,
-        seed = None
+        seed = None,
+        bn = None
         ):
 
         self.N = N
@@ -66,7 +65,6 @@ class Simulator(object):
         self.ChromosomeLength = ChromosomeLength
         self.MspDemographics = MspDemographics
         self.rho = None
-        self.hotWin = None
         self.mu = None
         self.segSites = None
         self.winMasks = winMasks
@@ -75,8 +73,6 @@ class Simulator(object):
         self.phased = None
         self.admixture = admixture
         self.phaseError = phaseError
-        self.hotspots = hotspots
-        self.nHotWins = nHotWins
         self.seed = seed
 
 
@@ -91,119 +87,72 @@ class Simulator(object):
         RR = self.rho[simNum]
         GR = self.gr[simNum]
         NE = self.ne[simNum]
+        SEED = self.seed[simNum]
 
-        if self.hotspots:
-            hotspotMultiplier = self.hotWin[simNum]
+        if not self.admixture:
+            if GR != 0.0:
+                PC = [msp.PopulationConfiguration(
+                    sample_size=self.N,
+                    initial_size=NE,
+                    growth_rate=GR)]
 
-            mapName = str(simNum) + "_map.txt"
-            mapPath = os.path.join(direc,mapName)
-
-            nWins = self.nHotWins
-            hotSpotWin = np.random.randint(nWins)
-
-            winRates = np.empty(nWins)
-
-            breaks = np.linspace(0,self.ChromosomeLength, num = nWins + 1)
-            with open(mapPath, "w") as fOUT:
-                fOUT.write("Chromosome\tstartPos\tRate\n")
-                for i in range(len(breaks)):
-                    if i == hotSpotWin:
-                        baseRate = RR * hotspotMultiplier * 10**8
-                        winRates[i] = baseRate
-                    elif i == nWins:
-                        baseRate = 0.0
-                    else:
-                        baseRate = RR * 10**8
-                        winRates[i] = baseRate
-                    fOUT.write("{}\t{}\t{}\n".format("chr",int(breaks[i]),baseRate))
-
-            recomb_map = msp.RecombinationMap.read_hapmap(mapPath)
-
-            if self.MspDemographics:
-                DE = self.MspDemographics["demographic_events"]
-                PC = self.MspDemographics["population_configurations"]
-                MM = self.MspDemographics["migration_matrix"]
                 ts = msp.simulate(
+                    random_seed = SEED,
+                    length=self.ChromosomeLength,
                     mutation_rate=MR,
+                    recombination_rate=RR,
+                    population_configurations = PC,
+                )
+            else:
+                ts = msp.simulate(
+                    random_seed = SEED,
+                    sample_size = self.N,
+                    Ne = self.Ne_noGrowth,
+                    length=self.ChromosomeLength,
+                    mutation_rate=MR,
+                    recombination_rate=RR
+                )
+        else:
+            #reciprocal migration at rate GR
+            if GR != 0.0:
+                PC = [
+                        msp.PopulationConfiguration(
+                            sample_size=self.N,
+                            initial_size=NE),
+
+                        msp.PopulationConfiguration(
+                            sample_size=self.N,
+                            initial_size=NE)
+                        ]
+
+                MM = [[      0, GR],
+                        [GR,       0]]
+
+                DE = []
+                DD = msp.DemographyDebugger(
+                        population_configurations=PC,
+                        migration_matrix=MM,
+                        demographic_events=DE)
+                #DD.print_history()
+                ts = msp.simulate(
+                    random_seed = SEED,
+                    length=self.ChromosomeLength,
+                    mutation_rate=MR,
+                    recombination_rate=RR,
                     population_configurations = PC,
                     migration_matrix = MM,
-                    demographic_events = DE,
-                    recombination_map = recomb_map
-                )
+                    demographic_events = DE
 
+                )
             else:
                 ts = msp.simulate(
+                    random_seed = SEED,
                     sample_size = self.N,
-                    Ne = self.Ne,
+                    Ne = self.Ne_noGrowth,
+                    length=self.ChromosomeLength,
                     mutation_rate=MR,
-                    recombination_map = recomb_map
+                    recombination_rate=RR
                 )
-
-        else:
-            if not self.admixture:
-                if GR != 0.0:
-                    PC = [msp.PopulationConfiguration(
-                        sample_size=self.N,
-                        initial_size=NE,
-                        growth_rate=GR)]
-
-                    ts = msp.simulate(
-                        random_seed = self.seed,
-                        length=self.ChromosomeLength,
-                        mutation_rate=MR,
-                        recombination_rate=RR,
-                        population_configurations = PC,
-                    )
-                else:
-                    ts = msp.simulate(
-                        random_seed = self.seed,
-                        sample_size = self.N,
-                        Ne = self.Ne_noGrowth,
-                        length=self.ChromosomeLength,
-                        mutation_rate=MR,
-                        recombination_rate=RR
-                    )
-            else:
-                #reciprocal migration at rate GR
-                if GR != 0.0:
-                    PC = [
-                            msp.PopulationConfiguration(
-                                sample_size=self.N,
-                                initial_size=NE),
-
-                            msp.PopulationConfiguration(
-                                sample_size=self.N,
-                                initial_size=NE)
-                            ]
-
-                    MM = [[      0, GR],
-                            [GR,       0]]
-
-                    DE = []
-                    DD = msp.DemographyDebugger(
-                            population_configurations=PC,
-                            migration_matrix=MM,
-                            demographic_events=DE)
-                    #DD.print_history()
-                    ts = msp.simulate(
-                        random_seed = self.seed,
-                        length=self.ChromosomeLength,
-                        mutation_rate=MR,
-                        recombination_rate=RR,
-                        population_configurations = PC,
-                        migration_matrix = MM,
-                        demographic_events = DE
-
-                    )
-                else:
-                    ts = msp.simulate(
-                        random_seed = self.seed,
-                        sample_size = self.N,
-                        Ne = self.Ne_noGrowth,
-                        length=self.ChromosomeLength,
-                        mutation_rate=MR,
-                        recombination_rate=RR
-                    )
 
 
         # Convert tree sequence to genotype matrix, and position matrix
@@ -281,20 +230,14 @@ class Simulator(object):
         return np.where(H_mask,H,H_shuf)
 
 
-    def simulateAndProduceTrees(self,direc,numReps,simulator,nProc=1):
+    def simulateAndProduceTrees(self,direc,numReps,simulator,nProc=1,
+            test_params=None,mask=None):
         '''
         determine which simulator to use then populate
 
         (str,str) -> None
         '''
-        if self.hotspots:
-            self.hotWin=np.zeros(numReps)
-            for i in range(int(numReps/2.0)):
-                randomTargetParameter = np.random.uniform(50,50)
-                self.hotWin[i] = randomTargetParameter
-            for i in range(int(numReps/2.0),numReps):
-                randomTargetParameter = np.random.uniform(1,1)
-                self.hotWin[i] = randomTargetParameter
+        self.seed=np.repeat(self.seed,numReps)
 
         self.rho=np.empty(numReps)
         for i in range(numReps):
@@ -315,6 +258,14 @@ class Simulator(object):
         for i in range(numReps):
             randomTargetParameter = np.random.uniform(self.Ne_growth_lo,self.Ne_growth_hi)
             self.ne[i] = randomTargetParameter
+
+        # for adaptive training, set parameters to those of the worst predicted examples in the test set
+        if test_params:
+            self.rho = np.repeat(test_params["rho"][mask],numReps/np.sum(mask))
+            self.mu = np.repeat(test_params["mu"][mask],numReps/np.sum(mask))
+            self.gr = np.repeat(test_params["gr"][mask],numReps/np.sum(mask))
+            self.ne = np.repeat(test_params["ne"][mask],numReps/np.sum(mask))
+            self.seed = np.arange(1,numReps+1)
 
         try:
             assert((simulator=='msprime') | (simulator=='SLiM'))
@@ -356,11 +307,21 @@ class Simulator(object):
                 gr.append(self.segSites[i])
 
         if gr:
-            print("mean segSites with growth:", sum(gr)/float(len(gr)))
+            if self.admixture:
+                print("mean segSites with admixture:", sum(gr)/float(len(gr)))
+            else:
+                print("mean segSites with growth:", sum(gr)/float(len(gr)))
         if no_gr:
-            print("mean segSites no growth:", sum(no_gr)/float(len(no_gr)))
+            if self.admixture:
+                print("mean segSites no admixture:", sum(no_gr)/float(len(no_gr)))
+            else:
+                print("mean segSites no growth:", sum(no_gr)/float(len(no_gr)))
 
         self.__dict__["numReps"] = numReps
+        if self.admixture:
+            self.__dict__["admixture"] = True
+        else:
+            self.__dict__["admixture"] = False
         infofile = open(os.path.join(direc,"info.p"),"wb")
         pickle.dump(self.__dict__,infofile)
         infofile.close()

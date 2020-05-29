@@ -50,9 +50,11 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
             seqD = None,
             maf = None,
             hotspots = False,
-            rep = None
+            rep = None,
+            adaptive = None,
             ):
 
+        self.adaptive = adaptive
         self.treesDirectory = treesDirectory
         self.model = model
         self.attackName = attackName

@@ -3,11 +3,13 @@ from iai.imports import *
 from iai.helpers import *
 from iai.sequenceBatchGenerator import *
 from iai.networks import *
+from iai.trainer import *
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('--adaptive',help='use adaptive training instead of adversarial training',default=False, action='store_true')
     parser.add_argument('--paramsID',help='paramsID',type=int,default=None)
     parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
     parser.add_argument('--fgsm',dest='fgsm',help='Train on FGSM attacked examples',default=False,action='store_true')
@@ -47,6 +49,7 @@ def main():
         testDir = os.path.join(projectDir,"test_params%s"%(args.paramsID))
         networkDir = os.path.join(projectDir,"networks")
 
+    admixture=pickle.load(open(os.path.join(networkDir,"simPars.p"), "rb"))["admixture"]
 
     ## Define output files
     test_resultFile = os.path.join(networkDir,"testResults.p")
@@ -114,34 +117,52 @@ def main():
     if args.cnn:
         mfp=iaiCNN_categorical_crossentropy_noPos
         mn="iaiCNN_categorical_crossentropy_noPos"
-    predict_cleverhans_tf2(ModelFuncPointer=mfp,
-            ModelName=mn,
-            NetworkDir=networkDir,
-            ProjectDir=projectDir,
-            TrainGenerator=train_sequence,
-            ValidationGenerator=vali_sequence,
-            TestGenerator=test_sequence,
-            test_info=test_info,
-            resultsFile=test_resultFile,
-            init=args.weights,
-            network=[modelSave,weightsSave],
-            numEpochs=args.nEpochs,
-            validationSteps=args.nValSteps,
-            nCPU=args.nCPU,
-            gpuID=args.gpuID,
-            learningRate=0.001,
-            paramsID=args.paramsID,
-            FGSM=args.fgsm,
-            PGD=args.pgd)
+    if args.adaptive:
+        predict_adaptive(ModelFuncPointer=mfp,
+                ModelName=mn,
+                NetworkDir=networkDir,
+                ProjectDir=projectDir,
+                TrainGenerator=train_sequence,
+                ValidationGenerator=vali_sequence,
+                TestGenerator=test_sequence,
+                test_info=test_info,
+                resultsFile=test_resultFile,
+                init=args.weights,
+                network=[modelSave,weightsSave],
+                numEpochs=args.nEpochs,
+                validationSteps=args.nValSteps,
+                nCPU=args.nCPU,
+                gpuID=args.gpuID,
+                paramsID=args.paramsID,
+                admixture=admixture)
+    else:
+        predict_cleverhans_tf2(ModelFuncPointer=mfp,
+                ModelName=mn,
+                NetworkDir=networkDir,
+                ProjectDir=projectDir,
+                TrainGenerator=train_sequence,
+                ValidationGenerator=vali_sequence,
+                TestGenerator=test_sequence,
+                test_info=test_info,
+                resultsFile=test_resultFile,
+                init=args.weights,
+                network=[modelSave,weightsSave],
+                numEpochs=args.nEpochs,
+                validationSteps=args.nValSteps,
+                nCPU=args.nCPU,
+                gpuID=args.gpuID,
+                paramsID=args.paramsID,
+                FGSM=args.fgsm,
+                PGD=args.pgd)
 
 
-    ## Plot results of predictions on test set
-    file1 = test_resultFile.replace(".p","_params%s.p"%(args.paramsID))
-    if args.fgsm:
-        plotResultsSoftmax2HeatmapMis(resultsFile=file1, resultsFile2=test_resultFile.replace(".p","_fgsm_params%s.p"%(args.paramsID)), saveas=test_resultFig.replace(".pdf","_fgsm_params%s.pdf"%(args.paramsID)))
-    if args.pgd:
-        plotResultsSoftmax2HeatmapMis(resultsFile=file1, resultsFile2=test_resultFile.replace(".p","_pgd_params%s.p"%(args.paramsID)), saveas=test_resultFig.replace(".pdf","_pgd_params%s.pdf"%(args.paramsID)))
-    #plotSummaryStats(projectDir_A=projectDir_A, projectDir_B=projectDir_B, saveas=test_resultFig.replace(".pdf","_stats.pdf"))
+        ## Plot results of predictions on test set
+        file1 = test_resultFile.replace(".p","_params%s.p"%(args.paramsID))
+        if args.fgsm:
+            plotResultsSoftmax2HeatmapMis(resultsFile=file1, resultsFile2=test_resultFile.replace(".p","_fgsm_params%s.p"%(args.paramsID)), saveas=test_resultFig.replace(".pdf","_fgsm_params%s.pdf"%(args.paramsID)),admixture=admixture)
+        if args.pgd:
+            plotResultsSoftmax2HeatmapMis(resultsFile=file1, resultsFile2=test_resultFile.replace(".p","_pgd_params%s.p"%(args.paramsID)), saveas=test_resultFig.replace(".pdf","_pgd_params%s.pdf"%(args.paramsID)),admixture=admixture)
+        #plotSummaryStats(projectDir_A=projectDir_A, projectDir_B=projectDir_B, saveas=test_resultFig.replace(".pdf","_stats.pdf"))
     
     print("\n***FINISHED!***\n")
 

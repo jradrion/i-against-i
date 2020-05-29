@@ -98,7 +98,10 @@ def main():
     # Assign pars for each simulation
     dg_trial = Simulator(**dg_params)
     
-    print("\nDetermine relative Ne for simulations with and without growth...")
+    if args.admixture:
+        print("\nDetermine relative Ne for simulations with and without admixture...")
+    else:
+        print("\nDetermine relative Ne for simulations with and without growth...")
     dg_trial.simulateAndProduceTrees(numReps=args.nTrain,direc=trialDir,simulator="msprime",nProc=nProc)
     
    
@@ -143,6 +146,7 @@ def main():
     with open(simParsFILE, "wb") as fOUT:
         dg_params["bn"]=os.path.basename(projectDir)
         pickle.dump(dg_params,fOUT)
+    
 
     ## Simulate data
     print("\nTraining set:")
@@ -209,8 +213,12 @@ def main():
     f, ax = plt.subplots(1, 2, sharey=True, tight_layout=True, figsize=(8, 3))
     ax[0].bar(bins, vals[0])
     ax[1].bar(bins, vals[1])
-    ax[0].set_title("Constant size (pi = %s)" %(round(np.mean(pi_const),5)))
-    ax[1].set_title("Exponential growth (pi = %s)" %(round(np.mean(pi_expan),5)))
+    if args.admixture:
+        ax[0].set_title("No admixture (pi = %s)" %(round(np.mean(pi_const),5)))
+        ax[1].set_title("Admixture (pi = %s)" %(round(np.mean(pi_expan),5)))
+    else:
+        ax[0].set_title("Constant size (pi = %s)" %(round(np.mean(pi_const),5)))
+        ax[1].set_title("Exponential growth (pi = %s)" %(round(np.mean(pi_expan),5)))
     ax[0].set_ylabel("Counts (percent)")
     ax[0].set_xlabel("Derived allele frequency")
     ax[1].set_xlabel("Derived allele frequency")
