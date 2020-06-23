@@ -6,6 +6,8 @@ from iai.networks import *
 
 def runModels_adaptive(ModelFuncPointer,
             ModelName,
+            TrainDir,
+            ValiDir,
             TestDir,
             NetworkDir,
             ProjectDir,
@@ -25,7 +27,14 @@ def runModels_adaptive(ModelFuncPointer,
             nCPU = 1,
             gpuID = 0,
             rep=None,
-            admixture=None):
+            admixture=None,
+            testGrid=0,
+            gridParams=None):
+
+    if gridParams:
+        gridPars = gridParams.split(",")
+    else:
+        gridPars = []
 
 
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
@@ -50,8 +59,8 @@ def runModels_adaptive(ModelFuncPointer,
     modelSave = network[0]
 
     # If TestGenerator is called after model.fit the random shuffling is not the same, even with same seed
+    print("\nReading test set...")
     x_test,y_test = TestGenerator.__getitem__(0)
-    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
 
     ct = 1
     last_acc = 0.0
@@ -59,49 +68,154 @@ def runModels_adaptive(ModelFuncPointer,
     while acc_diff >= 0.001:
         print("Adaptive training iteration %s..."%(ct))
         if ct > 1:
+            ## Resimulate using same params as those if tail of accuracy dist
+            ## Identify test examples with lowest accuracy
+            #resim_ids = []
+            #deviation = []
+            #accuracy = []
+            #for i in range(y_test.shape[0]):
+            #    if y_test[i][0] == 1.0:
+            #        D = 1.0 - y_pred[i][0]
+            #        deviation.append([D,i])
+            #        accuracy.append(1.0-D)
+            #    else:
+            #        D = 1.0 - y_pred[i][1]
+            #        deviation.append([D,i])
+            #        accuracy.append(1.0-D)
+            #deviation = sorted(deviation)[math.ceil(y_test.shape[0]/10.0)*-1:]
+            #for d in deviation:
+            #    resim_ids.append(d[1])
+            #resim_ids = np.array(resim_ids)
+            #mask = np.zeros(y_test.shape[0], dtype=bool)
+            #mask[resim_ids] = True
+
+            ## Create directories for new training sims
+            #newTrainDir = TrainParams["treesDirectory"] + "_adapt"
+            #newValiDir = ValiParams["treesDirectory"] + "_adapt"
+            #for d in [newTrainDir, newValiDir]:
+            #    if os.path.exists(d):
+            #        shutil.rmtree(d)
+            #    os.mkdir(d)
+
+            ## Resimulate using new parameters
+            #dg_params = pickle.load(open(os.path.join(NetworkDir, "simPars.p"), "rb"))
+            #test_params = pickle.load(open(os.path.join(TestDir, "info.p"), "rb"))
+
+            #dg_train = Simulator(**dg_params)
+            #dg_vali = Simulator(**dg_params)
+            #dg_train.simulateAndProduceTrees(numReps=np.sum(mask)*100,direc=newTrainDir,simulator="msprime",nProc=nCPU,test_params=test_params,mask=mask)
+            #dg_vali.simulateAndProduceTrees(numReps=np.sum(mask)*5,direc=newValiDir,simulator="msprime",nProc=nCPU,test_params=test_params,mask=mask)
+
+            ## Redefine the batch generators
+            #TrainGenerator = SequenceBatchGenerator(**TrainParams)
+            #ValidationGenerator = SequenceBatchGenerator(**ValiParams)
+
+            ## Prep for loading weights from previous training iteration
+            #resultsFile = resultsFile.replace("_adapt_%s.p"%(ct-1),"_adapt_%s.p" %(ct))
+            #initModel = modelSave
+            #initWeights = weightsSave
+            #weightsSave = weightsSave.replace("_adapt_%s.h5"%(ct-1),"_adapt_%s.h5"%(ct))
+
+
+            ## Resimulate, with sampling density of parameters is inversly proportional to test accuracy
+            train_params = pickle.load(open(os.path.join(TrainDir, "info.p"), "rb"))
+            vali_params = pickle.load(open(os.path.join(ValiDir, "info.p"), "rb"))
+            test_params = pickle.load(open(os.path.join(TestDir, "info.p"), "rb"))
+            x_unique = np.unique(test_params[gridPars[0]])
+            y_unique = np.unique(test_params[gridPars[1]])
+            X, Y = np.meshgrid(x_unique, y_unique)
+
             # Identify test examples with lowest accuracy
-            resim_ids = []
-            deviation = []
+            # there has to be a better way to do this using np.where
+            binary_acc = []
+            print("Accuracy calculation...")
             for i in range(y_test.shape[0]):
+                progress_bar((i+1)/y_test.shape[0])
                 if y_test[i][0] == 1.0:
-                    D = 1.0 - y_pred[i][0]
-                    deviation.append([D,i])
+                    if y_pred[i][0] >= 0.5:
+                        binary_acc.append(1)
+                    else:
+                        binary_acc.append(0)
                 else:
-                    D = 1.0 - y_pred[i][1]
-                    deviation.append([D,i])
-            deviation = sorted(deviation)[math.ceil(y_test.shape[0]/10.0)*-1:]
-            for d in deviation:
-                resim_ids.append(d[1])
-            resim_ids = np.array(resim_ids)
-            mask = np.zeros(y_test.shape[0], dtype=bool)
-            mask[resim_ids] = True
+                    if y_pred[i][1] >= 0.5:
+                        binary_acc.append(1)
+                    else:
+                        binary_acc.append(0)
+            binary_acc = np.array(binary_acc)
+
+            print("\n")
+            nTrain = int(train_params["numReps"] * 1.0) # what is the size on the new training set relative to the original generated by iai-simulate
+            nVali = int(vali_params["numReps"] * 1.0)
+            nTest = int(test_params["numReps"]/(testGrid**2))
+
+            z = binary_acc
+            z = np.reshape(z, (x_unique.shape[0],
+                y_unique.shape[0],
+                int(np.divide(z.shape[0],
+                    x_unique.shape[0] * y_unique.shape[0]))))
+
+            #print(np.sum(z,axis=2)+1)
+            z = np.divide(1,np.sum(z,axis=2)+1) # add 1 (so as to avoid divide by zero) and take inverse
+            #print(z)
+            c = 1 # increasing the constant, c, makes the weighting more extreme
+            z_norm = z**c / np.sum(z**c) # normalize
+            #print(z_norm)
+            #z_norm = z / np.linalg.norm(z) #Frobenius 2-norm
+            #z_norm /= z_norm.shape[0]
+            zTrain = np.rint(z_norm * nTrain)
+            zVali = np.rint(z_norm * nVali)
+            #print(zTrain)
+            #print(np.sum(zTrain))
+            #sys.exit()
 
             # Create directories for new training sims
             newTrainDir = TrainParams["treesDirectory"] + "_adapt"
             newValiDir = ValiParams["treesDirectory"] + "_adapt"
-            for d in [newTrainDir, newValiDir]:
+            newTestDir = TestParams["treesDirectory"] + "_adapt"
+            for d in [newTrainDir, newValiDir, newTestDir]:
                 if os.path.exists(d):
                     shutil.rmtree(d)
                 os.mkdir(d)
 
-            # Resimulate using new parameters
+            # Use new parameters
             dg_params = pickle.load(open(os.path.join(NetworkDir, "simPars.p"), "rb"))
-            test_params = pickle.load(open(os.path.join(TestDir, "info.p"), "rb"))
+            dg_params["seed"] = ct
 
             dg_train = Simulator(**dg_params)
             dg_vali = Simulator(**dg_params)
-            dg_train.simulateAndProduceTrees(numReps=np.sum(mask)*100,direc=newTrainDir,simulator="msprime",nProc=nCPU,test_params=test_params,mask=mask)
-            dg_vali.simulateAndProduceTrees(numReps=np.sum(mask)*5,direc=newTrainDir,simulator="msprime",nProc=nCPU,test_params=test_params,mask=mask)
+            # set testGrid for the new test set
+            dg_params["testGrid"] = testGrid
+            dg_params["gridParams"] = gridParams
+            dg_test = Simulator(**dg_params)
+
+            # Simulate
+            print("Simulate train set:")
+            dg_train.simulateAndProduceTrees(numReps=int(np.sum(zTrain)),direc=newTrainDir,simulator="msprime",nProc=nCPU,X=X,Y=Y,Z=zTrain,gridPars=gridPars)
+            print("Simulate vali set:")
+            dg_vali.simulateAndProduceTrees(numReps=int(np.sum(zVali)),direc=newValiDir,simulator="msprime",nProc=nCPU,X=X,Y=Y,Z=zVali,gridPars=gridPars)
+            print("Simulate test set:")
+            dg_test.simulateAndProduceTrees(numReps=nTest,direc=newTestDir,simulator="msprime",nProc=nCPU)
 
             # Redefine the batch generators
             TrainGenerator = SequenceBatchGenerator(**TrainParams)
+
+            ValiParams['batchSize'] = 64
             ValidationGenerator = SequenceBatchGenerator(**ValiParams)
+
+            TestParams['batchSize'] = nTest*(testGrid**2)
+            TestParams['shuffleExamples'] = False
+            TestGenerator = SequenceBatchGenerator(**TestParams)
 
             # Prep for loading weights from previous training iteration
             resultsFile = resultsFile.replace("_adapt_%s.p"%(ct-1),"_adapt_%s.p" %(ct))
             initModel = modelSave
             initWeights = weightsSave
             weightsSave = weightsSave.replace("_adapt_%s.h5"%(ct-1),"_adapt_%s.h5"%(ct))
+
+            # Regenerate new test set
+            x_test,y_test = TestGenerator.__getitem__(0)
+
+
 
         # Call the training generator
         x,y = TrainGenerator.__getitem__(0)
@@ -110,7 +224,7 @@ def runModels_adaptive(ModelFuncPointer,
         model = ModelFuncPointer(x,y)
         # Early stopping and saving the best weights
         if ct > 1:
-            patience = 25
+            patience = 50
         else:
             patience = 50
         callbacks_list = [
@@ -134,6 +248,8 @@ def runModels_adaptive(ModelFuncPointer,
             model.load_weights(initWeights)
             model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 
+        ### include conditional for testing
+        #if ct > 1: ## include conditional for testing
         history = model.fit(TrainGenerator,
             steps_per_epoch=epochSteps,
             epochs=numEpochs,
@@ -164,6 +280,7 @@ def runModels_adaptive(ModelFuncPointer,
         test_acc = tf.metrics.CategoricalAccuracy()
 
         # Predict on clean test examples
+        print("Predicting...")
         y_pred = model.predict(x_test)
         test_acc(y_test, y_pred)
         new_acc = float(test_acc.result())
@@ -179,11 +296,14 @@ def runModels_adaptive(ModelFuncPointer,
         # Evaluate improvement in accuracy
         acc_diff = new_acc - last_acc
         last_acc = new_acc
-        print("\nAccuracy improvement relative to last iteration:",acc_diff)
+        if ct > 1:
+            print("\nAccuracy improvement relative to last iteration:",acc_diff)
 
         # Plot training results
         plotResultsSoftmax2Heatmap(resultsFile=resultsFile,saveas=resultsFile.replace(".p",".pdf"),admixture=admixture)
         ct+=1
+        #if ct > 2:
+        #    break
 
 
 def predict_adaptive(ModelFuncPointer,

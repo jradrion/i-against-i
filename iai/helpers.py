@@ -7,6 +7,56 @@ from iai.sequenceBatchGenerator import *
 
 #-------------------------------------------------------------------------------------------
 
+def log_prior(theta):
+    ''' The natural logarithm of the prior probability. '''
+
+    lp = 0.
+
+    # unpack the model parameters from the tuple
+    m, c = theta
+
+    # uniform prior on c
+    cmin = -10. # lower range of prior
+    cmax = 10.  # upper range of prior
+
+    # set prior to 1 (log prior to 0) if in the range and zero (-inf) outside the range
+    lp = 0. if cmin < c < cmax else -np.inf
+
+    # Gaussian prior on m
+    mmu = 3.     # mean of the Gaussian prior
+    msigma = 10. # standard deviation of the Gaussian prior
+    lp -= 0.5*((m - mmu)/msigma)**2
+
+    return lp
+
+#-------------------------------------------------------------------------------------------
+
+def log_like(theta, data, sigma, x):
+    '''The natural logarithm of the likelihood.'''
+
+    # unpack the model parameters
+    m, c = theta
+
+    # evaluate the model
+    md = straight_line(x, m, c)
+
+    # return the log likelihood
+    return -0.5 * np.sum(((md - data)/sigma)**2)
+
+#-------------------------------------------------------------------------------------------
+
+def log_post(theta, data, sigma, x):
+    '''The natural logarithm of the posterior.'''
+
+    return logprior(theta) + loglike(theta, data, sigma, x)
+
+#-------------------------------------------------------------------------------------------
+
+def log_prob(x, mu, icov):
+    return -0.5 * np.dot(np.dot((x-mu).T,icov),(x-mu))
+
+#-------------------------------------------------------------------------------------------
+
 def assign_task(mpID, task_q, nProcs):
     c,i,nth_job=0,0,1
     while (i+1)*nProcs <= len(mpID):

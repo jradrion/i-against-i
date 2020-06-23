@@ -18,6 +18,8 @@ def main():
     parser.add_argument('-ne_hi','--assumedNe_hi',dest='ne_hi',help='Upper bound of assumed effective population size',type=float,default=0.004)
     parser.add_argument('-f','--fractionGrowth',dest='fGrowth',help='Fraction of training examples that will be simulated under a model of  exponential growth',type=float,default=0.5)
     parser.add_argument('--admixture',help='run binary classifier on admixture instread of population size growth',default=False, action='store_true')
+    parser.add_argument('--testGrid',dest='testGrid',help='generate test examples using meshgrid over priors',type=int,default=0)
+    parser.add_argument('--gridParams',dest='gridParams',help='two parameters (comma-separated) to use for the test grid (gr,mu,ne,rho)',type=str,default=None)
     parser.add_argument('--cLen',dest='cLen',help='Length of chromosome to simulate',type=int,default=1000000)
     parser.add_argument('--sam',dest='sam',help='sample size',type=int,default=10)
     parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
@@ -102,7 +104,7 @@ def main():
         print("\nDetermine relative Ne for simulations with and without admixture...")
     else:
         print("\nDetermine relative Ne for simulations with and without growth...")
-    dg_trial.simulateAndProduceTrees(numReps=args.nTrain,direc=trialDir,simulator="msprime",nProc=nProc)
+    dg_trial.simulateAndProduceTrees(numReps=int(args.nTrain/100.0),direc=trialDir,simulator="msprime",nProc=nProc)
     
    
 
@@ -136,17 +138,20 @@ def main():
         'seed':args.seed
               }
     
-    # Assign pars for each simulation
-    dg_train = Simulator(**dg_params)
-    dg_vali = Simulator(**dg_params)
-    dg_test = Simulator(**dg_params)
-
+    
     ## Dump simulation pars for use with parametric bootstrap
     simParsFILE=os.path.join(networkDir,"simPars.p")
     with open(simParsFILE, "wb") as fOUT:
         dg_params["bn"]=os.path.basename(projectDir)
         pickle.dump(dg_params,fOUT)
     
+    # Assign pars for each simulation
+    dg_train = Simulator(**dg_params)
+    dg_vali = Simulator(**dg_params)
+    dg_params["testGrid"] = args.testGrid
+    dg_params["gridParams"] = args.gridParams
+    dg_test = Simulator(**dg_params)
+
 
     ## Simulate data
     print("\nTraining set:")
@@ -161,8 +166,7 @@ def main():
     print("Test set:")
     dg_test.simulateAndProduceTrees(numReps=args.nTest,direc=testDir,simulator="msprime",nProc=nProc)
     print("\nSIMULATIONS FINISHED!\n")
-    
-    
+
     ## Count number of segregating sites in simulation
     SS=[]
     maxSegSites = 0
@@ -188,7 +192,9 @@ def main():
     pi_const, pi_expan = [], []
     info = pickle.load(open(os.path.join(testDir,"info.p"),"rb"))
     gr = info["gr"]
+    print("Enumerating over the test set...")
     for i, rate in enumerate(gr):
+        progress_bar((i+1)/gr.shape[0])
         Hfilepath = os.path.join(testDir,str(i) + "_haps.npy")
         Pfilepath = os.path.join(testDir,str(i) + "_pos.npy")
         H = np.load(Hfilepath)
@@ -244,11 +250,12 @@ def main():
                     Hfilepath = os.path.join(nDir, str(i) + "_haps.npy")
                     Pfilepath = os.path.join(nDir, str(i) + "_pos.npy")
                     H = np.load(Hfilepath)
+                    P = np.load(Pfilepath)
                     H = H[:maxSegSites]
                     P = P[:maxSegSites]
                     np.save(Hfilepath,H)
                     np.save(Pfilepath,P)
-                    progress_bar(i/float(numReps))
+                    progress_bar((i+1)/float(numReps))
 
     else:
         shutil.rmtree(trialDir)
@@ -264,11 +271,12 @@ def main():
                     Hfilepath = os.path.join(nDir, str(i) + "_haps.npy")
                     Pfilepath = os.path.join(nDir, str(i) + "_pos.npy")
                     H = np.load(Hfilepath)
+                    P = np.load(Pfilepath)
                     H = H[:maxSegSites]
                     P = P[:maxSegSites]
                     np.save(Hfilepath,H)
                     np.save(Pfilepath,P)
-                    progress_bar(i/float(numReps))
+                    progress_bar((i+1)/float(numReps))
 
         
     print("\n\n***FINISHED***\n")

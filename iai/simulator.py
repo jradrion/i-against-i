@@ -47,7 +47,10 @@ class Simulator(object):
         phased = None,
         phaseError = None,
         seed = None,
-        bn = None
+        bn = None,
+        testGrid = 0,
+        gridParams = None,
+        gridPars = None
         ):
 
         self.N = N
@@ -74,6 +77,12 @@ class Simulator(object):
         self.admixture = admixture
         self.phaseError = phaseError
         self.seed = seed
+        self.testGrid = testGrid
+        self.gridPars = gridPars
+        if gridParams:
+            self.gridParams = gridParams.split(",")
+        else:
+            self.gridParams = []
 
 
     def runOneMsprimeSim(self,simNum,direc):
@@ -231,41 +240,247 @@ class Simulator(object):
 
 
     def simulateAndProduceTrees(self,direc,numReps,simulator,nProc=1,
-            test_params=None,mask=None):
+            X=None, Y=None, Z=None, gridPars=None):
         '''
         determine which simulator to use then populate
 
         (str,str) -> None
         '''
-        self.seed=np.repeat(self.seed,numReps)
 
-        self.rho=np.empty(numReps)
-        for i in range(numReps):
-            randomTargetParameter = np.random.uniform(self.priorLowsRho,self.priorHighsRho)
-            self.rho[i] = randomTargetParameter
+        if "gr" in self.gridParams and "mu" in self.gridParams:
+            self.gr = np.linspace(0.0,self.priorHighsGr,self.testGrid)
+            self.mu = np.linspace(self.priorLowsMu,self.priorHighsMu,self.testGrid)
+            self.gr, self.mu = np.meshgrid(self.gr,self.mu)
+            self.gr = np.repeat(self.gr,numReps)
+            self.mu = np.repeat(self.mu,numReps)
+            self.numReps = self.gr.shape[0]
+            numReps = self.numReps
+            self.ne=np.zeros(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.Ne_growth_lo,self.Ne_growth_hi)
+                self.ne[i] = randomTargetParameter
+            self.rho=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsRho,self.priorHighsRho)
+                self.rho[i] = randomTargetParameter
+            self.seed=np.repeat(self.seed,numReps)
 
-        self.mu=np.empty(numReps)
-        for i in range(numReps):
-            randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
-            self.mu[i] = randomTargetParameter
+        elif "gr" in self.gridParams and "ne" in self.gridParams:
+            self.gr = np.linspace(0.0,self.priorHighsGr,self.testGrid)
+            self.ne = np.linspace(self.Ne_growth_lo,self.Ne_growth_hi,self.testGrid)
+            self.gr, self.ne = np.meshgrid(self.gr,self.ne)
+            self.gr = np.repeat(self.gr,numReps)
+            self.ne = np.repeat(self.ne,numReps)
+            self.numReps = self.gr.shape[0]
+            numReps = self.numReps
+            self.mu=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+                self.mu[i] = randomTargetParameter
+            self.rho=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsRho,self.priorHighsRho)
+                self.rho[i] = randomTargetParameter
+            self.seed=np.repeat(self.seed,numReps)
 
-        self.gr=np.zeros(numReps)
-        for i in range(int(numReps*self.fractionGrowth)):
-            randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
-            self.gr[i] = randomTargetParameter
+        elif "gr" in self.gridParams and "rho" in self.gridParams:
+            self.gr = np.linspace(0.0,self.priorHighsGr,self.testGrid)
+            self.rho = np.linspace(self.priorLowsRho,self.priorHighsRho,self.testGrid)
+            self.gr, self.rho = np.meshgrid(self.gr,self.rho)
+            self.gr = np.repeat(self.gr,numReps)
+            self.rho = np.repeat(self.rho,numReps)
+            self.numReps = self.gr.shape[0]
+            numReps = self.numReps
+            self.mu=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+                self.mu[i] = randomTargetParameter
+            self.ne=np.zeros(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.Ne_growth_lo,self.Ne_growth_hi)
+                self.ne[i] = randomTargetParameter
+            self.seed=np.repeat(self.seed,numReps)
 
-        self.ne=np.zeros(numReps)
-        for i in range(numReps):
-            randomTargetParameter = np.random.uniform(self.Ne_growth_lo,self.Ne_growth_hi)
-            self.ne[i] = randomTargetParameter
+        elif "mu" in self.gridParams and "ne" in self.gridParams:
+            self.mu = np.linspace(self.priorLowsMu,self.priorHighsMu,self.testGrid)
+            self.ne = np.linspace(self.Ne_growth_lo,self.Ne_growth_hi,self.testGrid)
+            self.mu, self.ne = np.meshgrid(self.mu,self.ne)
+            self.mu = np.repeat(self.mu,numReps)
+            self.ne = np.repeat(self.ne,numReps)
+            self.numReps = self.mu.shape[0]
+            numReps = self.numReps
+            self.gr=np.zeros(numReps)
+            for i in range(int(numReps*self.fractionGrowth)):
+                randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+                self.gr[i] = randomTargetParameter
+            self.rho=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsRho,self.priorHighsRho)
+                self.rho[i] = randomTargetParameter
+            self.seed=np.repeat(self.seed,numReps)
+
+        elif "mu" in self.gridParams and "rho" in self.gridParams:
+            self.mu = np.linspace(self.priorLowsMu,self.priorHighsMu,self.testGrid)
+            self.rho = np.linspace(self.priorLowsRho,self.priorHighsRho,self.testGrid)
+            self.mu, self.rho = np.meshgrid(self.mu,self.rho)
+            self.mu = np.repeat(self.mu,numReps)
+            self.rho = np.repeat(self.rho,numReps)
+            self.numReps = self.mu.shape[0]
+            numReps = self.numReps
+            self.gr=np.zeros(numReps)
+            for i in range(int(numReps*self.fractionGrowth)):
+                randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+                self.gr[i] = randomTargetParameter
+            self.ne=np.zeros(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.Ne_growth_lo,self.Ne_growth_hi)
+                self.ne[i] = randomTargetParameter
+            self.seed=np.repeat(self.seed,numReps)
+
+        elif "ne" in self.gridParams and "rho" in self.gridParams:
+            self.ne = np.linspace(self.Ne_growth_lo,self.Ne_growth_hi,self.testGrid)
+            self.rho = np.linspace(self.priorLowsRho,self.priorHighsRho,self.testGrid)
+            self.ne, self.rho = np.meshgrid(self.ne,self.rho)
+            self.ne = np.repeat(self.ne,numReps)
+            self.rho = np.repeat(self.rho,numReps)
+            self.numReps = self.ne.shape[0]
+            numReps = self.numReps
+            self.gr=np.zeros(numReps)
+            for i in range(int(numReps*self.fractionGrowth)):
+                randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+                self.gr[i] = randomTargetParameter
+            self.mu=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+                self.mu[i] = randomTargetParameter
+            self.seed=np.repeat(self.seed,numReps)
+
+        else:
+            self.gr=np.zeros(numReps)
+            for i in range(int(numReps*self.fractionGrowth)):
+                randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+                self.gr[i] = randomTargetParameter
+            self.mu=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+                self.mu[i] = randomTargetParameter
+            self.ne=np.zeros(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.Ne_growth_lo,self.Ne_growth_hi)
+                self.ne[i] = randomTargetParameter
+            self.rho=np.empty(numReps)
+            for i in range(numReps):
+                randomTargetParameter = np.random.uniform(self.priorLowsRho,self.priorHighsRho)
+                self.rho[i] = randomTargetParameter
+            self.seed=np.repeat(self.seed,numReps)
+
+
+            # Plot histograms of the parameters
+            nbins = 100
+            if direc.split("/")[-1] == "train":
+                plt.figure(0)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_gr.png")
+                fig = plt.hist(self.gr,
+                        range=(0.0,self.priorHighsGr),
+                        bins=nbins)
+                plt.savefig(outFile)
+                plt.figure(1)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_mu.png")
+                fig = plt.hist(self.mu,
+                        range=(self.priorLowsMu,self.priorHighsMu),
+                        bins=nbins)
+                plt.savefig(outFile)
+                plt.figure(2)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_ne.png")
+                fig = plt.hist(self.ne,
+                        range=(self.Ne_growth_lo,self.Ne_growth_hi),
+                        bins=nbins)
+                plt.savefig(outFile)
+                plt.figure(3)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_rho.png")
+                fig = plt.hist(self.rho,
+                        range=(self.priorLowsRho,self.priorHighsRho),
+                        bins=nbins)
+                plt.savefig(outFile)
+
+
 
         # for adaptive training, set parameters to those of the worst predicted examples in the test set
-        if test_params:
-            self.rho = np.repeat(test_params["rho"][mask],numReps/np.sum(mask))
-            self.mu = np.repeat(test_params["mu"][mask],numReps/np.sum(mask))
-            self.gr = np.repeat(test_params["gr"][mask],numReps/np.sum(mask))
-            self.ne = np.repeat(test_params["ne"][mask],numReps/np.sum(mask))
-            self.seed = np.arange(1,numReps+1)
+        if type(Z) is np.ndarray:
+            ct = 0
+            x, y = np.zeros(numReps), np.zeros(numReps)
+            for i in range(X.shape[0]):
+                for j in range(X.shape[1]):
+                    for k in range(int(Z[i][j])):
+                        randomTargetParameter = np.random.uniform(X[i][max(0,j-1)],
+                                X[i][min(X.shape[1]-1,j+1)])
+                        x[ct] = randomTargetParameter
+                        randomTargetParameter = np.random.uniform(Y[max(0,i-1)][j],
+                                Y[min(X.shape[0]-1,i+1)][j])
+                        y[ct] = randomTargetParameter
+                        ct+=1
+
+            for i in range(len(gridPars)):
+                if gridPars[i] == "gr":
+                    # randomly mask set 'fractionGrowth' of the gr values to zero
+                    if i == 0:
+                        self.gr = x
+                    else:
+                        self.gr = y
+                    mask = np.zeros(self.gr.shape[0], dtype=int)
+                    mask[:int(mask.shape[0]*self.fractionGrowth)] = 1
+                    np.random.shuffle(mask)
+                    mask = mask.astype(bool)
+                    self.gr = np.where(mask == True, self.gr, 0.0)
+                if gridPars[i] == "mu":
+                    # randomly mask set 'fractionGrowth' of the gr values to zero
+                    if i == 0:
+                        self.mu = x
+                    else:
+                        self.mu = y
+                if gridPars[i] == "ne":
+                    # randomly mask set 'fractionGrowth' of the gr values to zero
+                    if i == 0:
+                        self.ne = x
+                    else:
+                        self.ne = y
+                if gridPars[i] == "rho":
+                    # randomly mask set 'fractionGrowth' of the gr values to zero
+                    if i == 0:
+                        self.rho = x
+                    else:
+                        self.rho = y
+            self.seed = np.multiply(np.arange(1,numReps+1),self.seed)
+
+
+            # Plot histograms of the parameters
+            nbins = 100
+            if direc.split("/")[-1] == "train_adapt":
+                plt.figure(10)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_adapt_gr.png")
+                fig = plt.hist(self.gr,
+                        range=(0.0,self.priorHighsGr),
+                        bins=nbins)
+                plt.savefig(outFile)
+                plt.figure(11)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_adapt_mu.png")
+                fig = plt.hist(self.mu,
+                        range=(self.priorLowsMu,self.priorHighsMu),
+                        bins=nbins)
+                plt.savefig(outFile)
+                plt.figure(12)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_adapt_ne.png")
+                fig = plt.hist(self.ne,
+                        range=(self.Ne_growth_lo,self.Ne_growth_hi),
+                        bins=nbins)
+                plt.savefig(outFile)
+                plt.figure(13)
+                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_adapt_rho.png")
+                fig = plt.hist(self.rho,
+                        range=(self.priorLowsRho,self.priorHighsRho),
+                        bins=nbins)
+                plt.savefig(outFile)
+
 
         try:
             assert((simulator=='msprime') | (simulator=='SLiM'))

@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--gru',dest='gru',help='Train using a bidirectinal GRU',default=False,action='store_true')
     parser.add_argument('-im','--initModel',dest='model',help='Path to the initialization model',default=None)
     parser.add_argument('-iw','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
+    parser.add_argument('--testGrid',dest='testGrid',help='generate test examples using meshgrid over priors',type=int,default=0)
+    parser.add_argument('--gridParams',dest='gridParams',help='two parameters (comma-separated) to use for the test grid (gr,mu,ne,rho)',type=str,default=None)
     parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
     parser.add_argument('--nValSteps',dest='nValSteps',help='Number of validation steps', type=int, default=20)
     parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
@@ -151,6 +153,8 @@ def main():
     if args.adaptive:
         runModels_adaptive(ModelFuncPointer=mfp,
                 ModelName=mn,
+                TrainDir=trainDir,
+                ValiDir=valiDir,
                 TestDir=testDir,
                 NetworkDir=networkDir,
                 ProjectDir=projectDir,
@@ -169,7 +173,9 @@ def main():
                 nCPU=args.nCPU,
                 gpuID=args.gpuID,
                 rep=args.rep,
-                admixture=admixture) 
+                admixture=admixture,
+                testGrid=args.testGrid,
+                gridParams=args.gridParams) 
     else:
         runModels_cleverhans_tf2(ModelFuncPointer=mfp,
                 ModelName=mn,

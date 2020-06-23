@@ -1,0 +1,449 @@
+#!/usr/bin/env python
+from iai.imports import *
+from iai.helpers import *
+from iai.sequenceBatchGenerator import *
+from iai.networks import *
+from iai.simulator import *
+from iai.trainer import *
+
+
+def exploreModels_adaptive(ModelFuncPointer,
+            ModelName,
+            TestDir,
+            NetworkDir,
+            ProjectDir,
+            TrainGenerator,
+            ValidationGenerator,
+            TestGenerator,
+            TrainParams=None,
+            ValiParams=None,
+            TestParams=None,
+            resultsFile=None,
+            numEpochs=10,
+            epochSteps=100,
+            validationSteps=1,
+            initModel=None,
+            initWeights=None,
+            network=None,
+            nCPU = 1,
+            gpuID = 0,
+            rep=None,
+            admixture=None):
+
+
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
+
+
+    ## The following code block appears necessary for running with tf2 and cudnn
+    from tensorflow.compat.v1 import ConfigProto
+    from tensorflow.compat.v1 import Session
+    config = ConfigProto()
+    config.gpu_options.allow_growth = True
+    Session(config=config)
+    ###
+
+
+    if(resultsFile == None):
+        resultsFilename = os.path.basename(trainFile)[:-4] + ".p"
+        resultsFile = os.path.join("./results/",resultsFilename)
+
+    # Redefine modelSave and weightsSave
+    resultsFile = resultsFile.replace(".p","_adapt_1.p")
+    weightsSave = network[1].replace(".h5","_adapt_1.h5")
+    modelSave = network[0]
+
+    
+    
+    
+    # Prep for loading weights from previous training iteration
+    initModel = modelSave
+    initWeights = weightsSave
+    print("Loading model/weights from path!")
+    assert initModel != None
+    jsonFILE = open(initModel,"r")
+    loadedModel = jsonFILE.read()
+    jsonFILE.close()
+    model=model_from_json(loadedModel)
+    model.load_weights(initWeights)
+    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    
+    #print(weightsSave)
+    #sys.exit()
+    
+     
+    # If TestGenerator is called after model.fit the random shuffling is not the same, even with same seed
+    print("\nReading test set...")
+    x_test,y_test = TestGenerator.__getitem__(0)
+    img_rows, img_cols = x_test.shape[1], x_test.shape[2]
+    
+    test_params = pickle.load(open(os.path.join(TestDir, "info.p"), "rb"))
+    gr_unique = np.unique(test_params["gr"])
+    mu_unique = np.unique(test_params["mu"])
+    #gr_unique = np.unique(test_params["ne"])
+    #mu_unique = np.unique(test_params["rho"])
+    X, Y = np.meshgrid(gr_unique, mu_unique)
+    #print(X.shape)
+    #print(Y.shape)
+    #print(X)
+    #print(Y)
+    #print(y_test.shape)
+    #sys.exit()
+    #z = test_params["ne"]
+    #z = np.reshape(z, (20,1000))
+    #z = np.mean(z,axis=1)
+    #Z,Z = np.meshgrid(z,z)
+    #print(Z.shape)
+    ##sys.exit()
+    #plt.figure(0)
+    #outFile = os.path.join(NetworkDir,"test.png")
+    #ax = plt.axes(projection='3d')
+    ## Data for a three-dimensional line
+    #ax.contour3D(X, Y, Z,50, cmap='coolwarm')
+    #ax.set_xlabel("gr")
+    #ax.set_ylabel("mu")
+    #ax.set_zlabel("Ne")
+    #plt.savefig(outFile)
+    #sys.exit()
+    
+    #print(mu_unique)
+    #print(y_test)
+    #sys.exit()
+
+    # Predict on clean test examples
+    y_pred = model.predict(x_test)
+    
+    resim_ids = []
+    binary_acc = []
+    accuracy = []
+    deviation = []
+    print("Accuracy calculation...")
+    for i in range(y_test.shape[0]):
+        progress_bar((i+1)/y_test.shape[0])
+        if y_test[i][0] == 1.0:
+            D = 1.0 - y_pred[i][0]
+            deviation.append([D,i])
+            accuracy.append(1.0-D)
+            if y_pred[i][0] >= 0.5:
+                binary_acc.append(1)
+            else:
+                binary_acc.append(0)
+        else:
+            D = 1.0 - y_pred[i][1]
+            deviation.append([D,i])
+            accuracy.append(1.0-D)
+            if y_pred[i][1] >= 0.5:
+                binary_acc.append(1)
+            else:
+                binary_acc.append(0)
+    accuracy = np.array(accuracy)
+    binary_acc = np.array(binary_acc)
+    
+    print("\n")
+    z = binary_acc
+    z = np.reshape(z, (20,20,250))
+    Z = np.divide(np.sum(z,axis=2),z.shape[2])
+    plt.figure(0)
+    outFile = os.path.join(NetworkDir,"mr_mu_accGrid.png")
+    ax = plt.axes(projection='3d')
+    ax.contour3D(X, Y, Z, 50, cmap='coolwarm')
+    ax.set_xlabel("mr")
+    ax.set_ylabel("mu")
+    ax.set_zlabel("Accuracy")
+    plt.savefig(outFile)
+    
+    angleDir = os.path.join(NetworkDir, "rotation_angles")
+    if not os.path.exists(angleDir):
+        os.mkdir(angleDir)
+    for angle in range(0, 360, 15):
+        angleFile = os.path.join(angleDir, "mr_mu_accGrid_%s.png"%(angle))
+        ax.view_init(30, angle)
+        plt.draw()
+        plt.pause(.001)
+        plt.savefig(angleFile)
+    sys.exit()
+    
+    
+    deviation_10 = sorted(deviation)[math.ceil(y_test.shape[0]/10.0)*-1:]
+    for d in deviation_10:
+        resim_ids.append(d[1])
+    resim_ids = np.array(resim_ids)
+    mask = np.zeros(y_test.shape[0], dtype=bool)
+    mask[resim_ids] = True
+    
+    # Do PCA 
+    pca = sklearn.decomposition.PCA(n_components=2)
+    M = np.transpose(np.array([test_params["ne"],test_params["mu"],test_params["rho"],test_params["gr"]]))
+    M = scale(M)
+    pca.fit(M)
+    df_2D = pd.DataFrame(pca.transform(M),columns=['PCA1', 'PCA2'])
+    df_2D["accuracy"] = accuracy
+    print("\nComponent loadings:")
+    print("Parameter order: [ne, mu, rho, mr]")
+    print(pca.components_.T)
+    
+    # write the outlier params to disk
+    nbins = 100
+    
+    #plt.figure(0)
+    #outFile = os.path.join(NetworkDir,"outlier_params_adapt_1_mu.png")
+    #fig = plt.hist(test_params["mu"][mask],
+    #        range=(test_params["priorLowsMu"],test_params["priorHighsMu"]),
+    #        bins=nbins)
+    #plt.savefig(outFile)
+    #
+    #plt.figure(1)
+    #outFile = os.path.join(NetworkDir,"outlier_params_adapt_1_rho.png")
+    #fig = plt.hist(test_params["rho"][mask],
+    #        range=(test_params["priorLowsRho"],test_params["priorHighsRho"]),
+    #        bins=nbins)
+    #plt.savefig(outFile)
+    #
+    #plt.figure(2)
+    #outFile = os.path.join(NetworkDir,"outlier_params_adapt_1_mr.png")
+    #fig = plt.hist(test_params["gr"][mask],
+    #        range=(test_params["priorLowsGr"],test_params["priorHighsGr"]),
+    #        bins=nbins)
+    #plt.savefig(outFile)
+    #
+    #plt.figure(3)
+    #outFile = os.path.join(NetworkDir,"outlier_params_adapt_1_ne.png")
+    #fig = plt.hist(test_params["ne"][mask],
+    #        range=(min(test_params["Ne_growth_lo"],test_params["Ne_growth_hi"],test_params["Ne_noGrowth"]),
+    #            max(test_params["Ne_growth_lo"],test_params["Ne_growth_hi"],test_params["Ne_noGrowth"])),
+    #        bins=nbins)
+    #plt.savefig(outFile)
+    
+    plt.figure(4)
+    outFile = os.path.join(NetworkDir,"outlier_params_adapt_1_accuracy3D.png")
+    angleDir = os.path.join(NetworkDir, "3D_angles")
+    if not os.path.exists(angleDir):
+        os.mkdir(angleDir)
+    ax = plt.axes(projection='3d')
+    # Data for a three-dimensional line
+    zdata = df_2D["accuracy"]
+    xdata = df_2D["PCA1"]
+    ydata = df_2D["PCA2"]
+    ax.scatter3D(xdata, ydata, zdata, c=zdata, cmap='coolwarm')
+    #ax.contour3D(xdata, ydata, zdata, c=zdata, cmap='binary')
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.set_zlabel("accuracy")
+    plt.savefig(outFile)
+    for angle in range(0, 360, 10):
+        angleFile = os.path.join(angleDir, "outlier_params_adapt_1_accuracy3D_%s.png"%(angle))
+        ax.view_init(30, angle)
+        plt.draw()
+        plt.pause(.001)
+        plt.savefig(angleFile)
+    plt.savefig(outFile)
+    
+    plt.figure(5)
+    outFile = os.path.join(NetworkDir,"outlier_params_adapt_1_PCA.png")
+    fig = sns.scatterplot(df_2D.PCA1,df_2D.PCA2,hue=df_2D.accuracy,alpha=0.7,palette="coolwarm")
+    fig = fig.get_figure()
+    fig.savefig(outFile)
+    
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
+    parser.add_argument('-a','--attackFraction',dest='attackFraction',help='Fraction of training set to be comprised of adversarial examples', type=float, default=0.0)
+    parser.add_argument('-ab','--attackBatchSize',dest='attackBatchSize',help='Size of the batch for attacking the train/vailidation sets', type=int, default=1000)
+    parser.add_argument('--adaptive',help='use adaptive training instead of adversarial training',default=False, action='store_true')
+    parser.add_argument('--testGrid',help='generate test examples using meshgrid over priors',default=False, action='store_true')
+    parser.add_argument('--fgsm',dest='fgsm',help='Train on FGSM attacked examples',default=False,action='store_true')
+    parser.add_argument('--pgd',dest='pgd',help='Train on PGD attacked examples',default=False,action='store_true')
+    parser.add_argument('--cnn',dest='cnn',help='Train using a 1D CNN',default=False,action='store_true')
+    parser.add_argument('--gru',dest='gru',help='Train using a bidirectinal GRU',default=False,action='store_true')
+    parser.add_argument('-im','--initModel',dest='model',help='Path to the initialization model',default=None)
+    parser.add_argument('-iw','--initWeights',dest='weights',help='Path to the initialization weights',default=None)
+    parser.add_argument('--nEpochs',dest='nEpochs',help='Maximum number of epochs to train (EarlyStopping is implemented for validation accuracy)', type=int, default=1000)
+    parser.add_argument('--nValSteps',dest='nValSteps',help='Number of validation steps', type=int, default=20)
+    parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
+    parser.add_argument('-r','--rep',dest='rep',help='Training replicate number',type=int,default=None)
+    parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
+    parser.add_argument('--gpuID',dest='gpuID',help='Identifier specifying which GPU to use', type=int, default=0)
+    args = parser.parse_args()
+    
+    ### Set seed
+    if args.seed:
+        os.environ['PYTHONHASHSEED']=str(args.seed)
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        tf.random.set_seed(args.seed)
+        os.environ['TF_DETERMINISTIC_OPS'] = '1'
+        os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+
+
+    ## Set up the directory structure to store the simulations data.
+    if not args.outDir:
+        print("Warning: No project directory found, using current working directory.")
+        projectDir = os.getcwd()
+    else:
+        projectDir = args.outDir
+    
+    
+    ## Define and create the new training rep directories
+    if args.fgsm:
+        trainDir_fgsm = os.path.join(projectDir,"train_fgsm")
+        valiDir_fgsm = os.path.join(projectDir,"vali_fgsm")
+        testDir_fgsm = os.path.join(projectDir,"test_fgsm")
+        for p in [trainDir_fgsm,valiDir_fgsm,testDir_fgsm]:
+            if args.rep:
+                p += "_rep%s"%(args.rep)
+            if not os.path.exists(p):
+                os.makedirs(p)
+    if args.pgd:
+        trainDir_pgd = os.path.join(projectDir,"train_pgd")
+        valiDir_pgd = os.path.join(projectDir,"vali_pgd")
+        testDir_pgd = os.path.join(projectDir,"test_pgd")
+        for p in [trainDir_pgd,valiDir_pgd,testDir_pgd]:
+            if args.rep:
+                p += "_rep%s"%(args.rep)
+            if not os.path.exists(p):
+                os.makedirs(p)
+    
+    if args.rep:
+        networkDir_OG = os.path.join(projectDir,"networks")
+        networkDir = os.path.join(projectDir,"networks"+"_rep%s"%(args.rep)) 
+        cmd="cp -r %s %s"%(networkDir_OG, networkDir)
+        os.system(cmd)
+    else:
+        networkDir = os.path.join(projectDir,"networks")
+    
+    admixture=pickle.load(open(os.path.join(networkDir,"simPars.p"), "rb"))["admixture"]
+
+    trainDir = os.path.join(projectDir,"train")
+    valiDir = os.path.join(projectDir,"vali")
+    testDir = os.path.join(projectDir,"test")
+    
+    
+    ## Define output files
+    test_resultFile = os.path.join(networkDir,"testResults.p")
+    test_resultFig = os.path.join(networkDir,"testResults.pdf")
+    modelSave = os.path.join(networkDir,"model.json")
+    weightsSave = os.path.join(networkDir,"weights.h5")
+
+
+    ## Identify padding required
+    ## using maxSegSites=0 will trim all examples to the length of the example with the fewest sites
+    maxSegSites = float("inf")
+    if args.maxSegSites == 0:
+        for nDir in [trainDir,valiDir]:
+            S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
+            maxSegSites = min(maxSegSites, S_min)
+    else:
+        maxSegSites = args.maxSegSites
+
+    
+    bds_train_params = {
+        'adaptive':args.adaptive,
+        'treesDirectory':trainDir,
+        'targetNormalization':"zscore",
+        'batchSize': 64,
+        'maxLen': maxSegSites,
+        'frameWidth': 0,
+        'shuffleInds':True,
+        'sortInds':False,
+        'center':False,
+        'ancVal':0,
+        'padVal':0,
+        'derVal':1,
+        'realLinePos':True,
+        'posPadVal':0,
+        'seqD':None,
+        'rep':args.rep
+              }
+
+
+    ## Dump batch pars for bootstrap
+    batchParsFILE=os.path.join(networkDir,"batchPars.p")
+    with open(batchParsFILE, "wb") as fOUT:
+        pickle.dump(bds_train_params,fOUT)
+
+
+    bds_vali_params = copy.deepcopy(bds_train_params)
+    bds_vali_params['treesDirectory'] = valiDir
+    bds_vali_params['batchSize'] = 64
+
+    bds_test_params = copy.deepcopy(bds_train_params)
+    bds_test_params['treesDirectory'] = testDir
+    DsInfoDir = pickle.load(open(os.path.join(testDir,"info.p"),"rb"))
+    bds_test_params['batchSize'] = DsInfoDir["numReps"]
+    bds_test_params['shuffleExamples'] = False
+
+
+    ## Define sequence batch generator
+    train_sequence = SequenceBatchGenerator(**bds_train_params)
+    vali_sequence = SequenceBatchGenerator(**bds_vali_params)
+    test_sequence = SequenceBatchGenerator(**bds_test_params)
+
+    
+    # Train network
+    if args.gru:
+        mfp=iaiGRU_categorical_crossentropy_noPos
+        mn="iaiGRU_categorical_crossentropy_noPos"
+    if args.cnn:
+        mfp=iaiCNN_categorical_crossentropy_noPos
+        mn="iaiCNN_categorical_crossentropy_noPos"
+    if args.adaptive:
+        exploreModels_adaptive(ModelFuncPointer=mfp,
+                ModelName=mn,
+                TestDir=testDir,
+                NetworkDir=networkDir,
+                ProjectDir=projectDir,
+                TrainGenerator=train_sequence,
+                TrainParams=bds_train_params,
+                ValiParams=bds_vali_params,
+                TestParams=bds_test_params,
+                ValidationGenerator=vali_sequence,
+                TestGenerator=test_sequence,
+                resultsFile=test_resultFile,
+                initModel=args.model,
+                initWeights=args.weights,
+                network=[modelSave,weightsSave],
+                numEpochs=args.nEpochs,
+                validationSteps=args.nValSteps,
+                nCPU=args.nCPU,
+                gpuID=args.gpuID,
+                rep=args.rep,
+                admixture=admixture) 
+    else:
+        exploreModels_cleverhans_tf2(ModelFuncPointer=mfp,
+                ModelName=mn,
+                NetworkDir=networkDir,
+                ProjectDir=projectDir,
+                TrainGenerator=train_sequence,
+                TrainParams=bds_train_params,
+                ValiParams=bds_vali_params,
+                TestParams=bds_test_params,
+                ValidationGenerator=vali_sequence,
+                TestGenerator=test_sequence,
+                resultsFile=test_resultFile,
+                initModel=args.model,
+                initWeights=args.weights,
+                network=[modelSave,weightsSave],
+                numEpochs=args.nEpochs,
+                validationSteps=args.nValSteps,
+                nCPU=args.nCPU,
+                gpuID=args.gpuID,
+                attackFraction=args.attackFraction,
+                attackBatchSize=args.attackBatchSize,
+                rep=args.rep,
+                FGSM=args.fgsm,
+                PGD=args.pgd) 
+    
+        #### Plot results of predictions on test set
+        #plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig,admixture=admixture)
+        #if args.fgsm:
+        #    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_fgsm.p"),saveas=test_resultFig.replace(".pdf","_fgsm.pdf"),admixture=admixture)
+        #if args.pgd:
+        #    plotResultsSoftmax2Heatmap(resultsFile=test_resultFile.replace(".p","_pgd.p"),saveas=test_resultFig.replace(".pdf","_pgd.pdf"),admixture=admixture)
+
+
+    print("\n***FINISHED!***\n")
+
+if __name__ == "__main__":
+	main()

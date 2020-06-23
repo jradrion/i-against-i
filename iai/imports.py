@@ -9,6 +9,7 @@ import sys
 import math
 import msprime as msp
 import numpy as np
+import pandas as pd
 import os
 import multiprocessing as mp
 import random
@@ -18,13 +19,23 @@ import argparse
 import h5py
 import allel
 import time
+import seaborn as sns
+import zeus
+#import pymc3 as pm
+import scipy
+from multiprocessing import Pool
 
+import sklearn
 from sklearn.neighbors import NearestNeighbors
 from sklearn.utils import resample
+from sklearn import decomposition
+from sklearn.preprocessing import scale
+from sklearn.datasets import make_spd_matrix
 
 import matplotlib as mpl
 mpl.use('pdf')
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
