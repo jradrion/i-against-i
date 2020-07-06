@@ -6,6 +6,18 @@ from iai.networks import *
 from iai.simulator import *
 from iai.trainer import *
 
+def init():
+    ax.contour3D(X, Y, Z, 50, cmap='coolwarm')
+    ax.set_zlim(0.0, 1.1)
+    ax.set_xlabel("mu")
+    ax.set_ylabel("rho")
+    ax.set_zlabel("Accuracy")
+    return ax
+
+def animate(i):
+    ax.view_init(30, i * 15)
+    return ax
+
 
 def exploreModels_adaptive(ModelFuncPointer,
             ModelName,
@@ -138,23 +150,36 @@ def exploreModels_adaptive(ModelFuncPointer,
     accuracy = np.array(accuracy)
     binary_acc = np.array(binary_acc)
     
+
     print("\n")
     z = binary_acc
-    z = np.reshape(z, (20,20,250))
+    #print(z)
+    #z = np.reshape(z, (20,20,250))
+    z = np.reshape(z, (10,10,100))
     Z = np.divide(np.sum(z,axis=2),z.shape[2])
+    #print(Z)
+    #sys.exit()
     plt.figure(0)
-    outFile = os.path.join(NetworkDir,"mr_mu_accGrid.png")
+    #outFile = os.path.join(NetworkDir,"mu_rho_accGrid.png")
+    #outFile = os.path.join(NetworkDir,"mu_rho_accGrid.gif")
+    #fig, ax = plt.axes(projection='3d')
+    #fig, ax = plt.subplots()
     ax = plt.axes(projection='3d')
     ax.contour3D(X, Y, Z, 50, cmap='coolwarm')
+    ax.set_zlim(0.0, 1.1)
     ax.set_xlabel("mr")
     ax.set_ylabel("mu")
     ax.set_zlabel("Accuracy")
-    plt.savefig(outFile)
+    #plt.savefig(outFile)
     
+    #anim = FuncAnimation(ax, animate, frames=24, interval=200)
+    #anim.save(outFile, dpi=80, writer='imagemagick')
+    #sys.exit()
+
     angleDir = os.path.join(NetworkDir, "rotation_angles")
     if not os.path.exists(angleDir):
         os.mkdir(angleDir)
-    for angle in range(0, 360, 15):
+    for angle in range(0, 360, 10):
         angleFile = os.path.join(angleDir, "mr_mu_accGrid_%s.png"%(angle))
         ax.view_init(30, angle)
         plt.draw()

@@ -196,6 +196,26 @@ def runModels_adaptive(ModelFuncPointer,
             print("Simulate test set:")
             dg_test.simulateAndProduceTrees(numReps=nTest,direc=newTestDir,simulator="msprime",nProc=nCPU)
 
+
+            ## trim
+            maxSegSites = float("inf")
+            for nDir in [newTrainDir,newValiDir]:
+                S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
+                maxSegSites = min(maxSegSites, S_min)
+            for nDir in [newTrainDir,newValiDir,newTestDir]:
+                print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(nDir,maxSegSites))
+                numReps = pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["numReps"]
+                for i in range(numReps):
+                    Hfilepath = os.path.join(nDir, str(i) + "_haps.npy")
+                    Pfilepath = os.path.join(nDir, str(i) + "_pos.npy")
+                    H = np.load(Hfilepath)
+                    P = np.load(Pfilepath)
+                    H = H[:maxSegSites]
+                    P = P[:maxSegSites]
+                    np.save(Hfilepath,H)
+                    np.save(Pfilepath,P)
+                    progress_bar((i+1)/float(numReps))
+
             # Redefine the batch generators
             TrainGenerator = SequenceBatchGenerator(**TrainParams)
 

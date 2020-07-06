@@ -80,6 +80,11 @@ def main():
     trainDir = os.path.join(projectDir,"train")
     valiDir = os.path.join(projectDir,"vali")
     testDir = os.path.join(projectDir,"test")
+    # train a naive network on the adapt examples 
+    ## trainer loop must be set to break when ct > 1
+    #trainDir = os.path.join(projectDir,"train_adapt")
+    #valiDir = os.path.join(projectDir,"vali_adapt")
+    #testDir = os.path.join(projectDir,"test_adapt")
     
     
     ## Define output files

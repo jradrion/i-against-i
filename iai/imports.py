@@ -35,6 +35,8 @@ from sklearn.datasets import make_spd_matrix
 import matplotlib as mpl
 mpl.use('pdf')
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
 
 import tensorflow as tf

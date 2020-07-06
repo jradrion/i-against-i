@@ -143,6 +143,7 @@ class Simulator(object):
                         migration_matrix=MM,
                         demographic_events=DE)
                 #DD.print_history()
+                #start = time.time()
                 ts = msp.simulate(
                     random_seed = SEED,
                     length=self.ChromosomeLength,
@@ -153,6 +154,8 @@ class Simulator(object):
                     demographic_events = DE
 
                 )
+                #end = time.time()
+                #print("sim_completed in :",end-start)
             else:
                 ts = msp.simulate(
                     random_seed = SEED,
@@ -166,6 +169,7 @@ class Simulator(object):
 
         # Convert tree sequence to genotype matrix, and position matrix
         if self.admixture: # for migration matrix simulations with two popuulations, extract variant matrix from population 0 only
+            #start = time.time()
             ts_pop0 = ts.simplify(ts.samples(population=0))
             H_pop0 = ts_pop0.genotype_matrix()
             P_pop0 = np.array([s.position for s in ts_pop0.sites()],dtype='float32')
@@ -177,6 +181,8 @@ class Simulator(object):
             one_mask = ~np.all(H_pop0 == 1,axis=1)
             H = H_pop0[one_mask]
             P = P_pop0[one_mask]
+            #end = time.time()
+            #print("simplify time:",end-start)
         else:
             H = ts.genotype_matrix()
             P = np.array([s.position for s in ts.sites()],dtype='float32')
@@ -357,13 +363,31 @@ class Simulator(object):
 
         else:
             self.gr=np.zeros(numReps)
+            #for i in range(int(numReps*self.fractionGrowth)):
+            #    randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+            #    self.gr[i] = randomTargetParameter
+            ## restrict area of parameter space for positive control
             for i in range(int(numReps*self.fractionGrowth)):
-                randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+                randomTargetParameter = 5e-6
+                while 4e-6 <= randomTargetParameter <= 6e-6:
+                    randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
                 self.gr[i] = randomTargetParameter
+            ## add constant to an area of parameter space
+
+            #self.gr[0] = 1e-9
+            #print("migration rate:",self.gr)
+            #return
             self.mu=np.empty(numReps)
+            #for i in range(numReps):
+            #    randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+            #    self.mu[i] = randomTargetParameter
+            ## restrict area of parameter space for positive control
             for i in range(numReps):
-                randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+                randomTargetParameter = 5e-7
+                while 4e-7 <= randomTargetParameter <= 6e-7:
+                    randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
                 self.mu[i] = randomTargetParameter
+
             self.ne=np.zeros(numReps)
             for i in range(numReps):
                 randomTargetParameter = np.random.uniform(self.Ne_growth_lo,self.Ne_growth_hi)
@@ -422,30 +446,33 @@ class Simulator(object):
 
             for i in range(len(gridPars)):
                 if gridPars[i] == "gr":
-                    # randomly mask set 'fractionGrowth' of the gr values to zero
                     if i == 0:
                         self.gr = x
                     else:
                         self.gr = y
-                    mask = np.zeros(self.gr.shape[0], dtype=int)
-                    mask[:int(mask.shape[0]*self.fractionGrowth)] = 1
-                    np.random.shuffle(mask)
-                    mask = mask.astype(bool)
-                    self.gr = np.where(mask == True, self.gr, 0.0)
+                    print("self.gr:",self.gr)
+                    ## randomly mask set 'fractionGrowth' of the gr values to zero
+                    #mask = np.zeros(self.gr.shape[0], dtype=int)
+                    #mask[:int(mask.shape[0]*self.fractionGrowth)] = 1
+                    #np.random.shuffle(mask)
+                    #mask = mask.astype(bool)
+                    #self.gr = np.where(mask == True, self.gr, 0.0)
+
+                    ## don't set 'fractionGrowth' to zero but do set values under 1e-8, otherwise they take too long to coalesce.
+                    self.gr[self.gr < 1e-8] = 0.0
+                    print("new_gr:",self.gr)
+                    #return
                 if gridPars[i] == "mu":
-                    # randomly mask set 'fractionGrowth' of the gr values to zero
                     if i == 0:
                         self.mu = x
                     else:
                         self.mu = y
                 if gridPars[i] == "ne":
-                    # randomly mask set 'fractionGrowth' of the gr values to zero
                     if i == 0:
                         self.ne = x
                     else:
                         self.ne = y
                 if gridPars[i] == "rho":
-                    # randomly mask set 'fractionGrowth' of the gr values to zero
                     if i == 0:
                         self.rho = x
                     else:

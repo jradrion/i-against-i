@@ -105,7 +105,6 @@ def main():
     else:
         print("\nDetermine relative Ne for simulations with and without growth...")
     dg_trial.simulateAndProduceTrees(numReps=int(args.nTrain/100.0),direc=trialDir,simulator="msprime",nProc=nProc)
-    
    
 
     DsInfoDir = pickle.load(open(os.path.join(trialDir,"info.p"),"rb"))
