@@ -363,30 +363,30 @@ class Simulator(object):
 
         else:
             self.gr=np.zeros(numReps)
-            #for i in range(int(numReps*self.fractionGrowth)):
-            #    randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
-            #    self.gr[i] = randomTargetParameter
-            ## restrict area of parameter space for positive control
             for i in range(int(numReps*self.fractionGrowth)):
-                randomTargetParameter = 5e-6
-                while 4e-6 <= randomTargetParameter <= 6e-6:
-                    randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+                randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
                 self.gr[i] = randomTargetParameter
-            ## add constant to an area of parameter space
+            ### restrict area of parameter space for positive control
+            #for i in range(int(numReps*self.fractionGrowth)):
+            #    randomTargetParameter = 5e-6
+            #    while 2e-6 <= randomTargetParameter <= 6e-6:
+            #        randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
+            #    self.gr[i] = randomTargetParameter
+            ### add constant to an area of parameter space
 
             #self.gr[0] = 1e-9
             #print("migration rate:",self.gr)
             #return
             self.mu=np.empty(numReps)
-            #for i in range(numReps):
-            #    randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
-            #    self.mu[i] = randomTargetParameter
-            ## restrict area of parameter space for positive control
             for i in range(numReps):
-                randomTargetParameter = 5e-7
-                while 4e-7 <= randomTargetParameter <= 6e-7:
-                    randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+                randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
                 self.mu[i] = randomTargetParameter
+            ### restrict area of parameter space for positive control
+            #for i in range(numReps):
+            #    randomTargetParameter = 5e-7
+            #    while 2e-7 <= randomTargetParameter <= 6e-7:
+            #        randomTargetParameter = np.random.uniform(self.priorLowsMu,self.priorHighsMu)
+            #    self.mu[i] = randomTargetParameter
 
             self.ne=np.zeros(numReps)
             for i in range(numReps):

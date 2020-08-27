@@ -470,7 +470,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
     test_acc_clean = tf.metrics.CategoricalAccuracy()
     test_acc_fgsm = tf.metrics.CategoricalAccuracy()
     test_acc_pgd = tf.metrics.CategoricalAccuracy()
-    #test_acc_spsa = tf.metrics.CategoricalAccuracy()
 
     # predict on clean test examples
     print("\nPredicting on clean examples...")
@@ -480,12 +479,11 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     if FGSM:
         # predict on adversarial test examples using FGSM
-        print("Attacking using Fast Gradient Sign Method...")
+        print("\nAttacking using Fast Gradient Sign Method...")
         fgsm_params = {'eps': 1.0,
                 'norm': np.inf,
                 'clip_min': 0.0,
                 'clip_max': 1.0}
-
 
         # define the attack generator for test examples
         adv_test_params = copy.deepcopy(TestParams)
@@ -497,11 +495,15 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         adv_test_params["batchSize"] = attackBatchSize
         attackGen_test = SequenceBatchGenerator(**adv_test_params)
         # attack the entire test set and write adversarial examples to disk
-        print("\nAttacking the test set in batches of %s..."%(attackBatchSize))
+        print("Attacking the test set in batches of %s..."%(attackBatchSize))
         num_batches = int(np.ceil(og_test_numReps/float(adv_test_params["batchSize"])))
+        t0 = time.perf_counter()
         for i in range(num_batches):
             attackGen_test.__getitem__(i)
             progress_bar(i/float(num_batches))
+        progress_bar(num_batches/float(num_batches))
+        t1 = time.perf_counter()
+        print("\nAverage time per FGSM attack (s):", round((t1-t0)/float(og_test_numReps),6))
 
         # reset generator parameters
         adv_test_dir = og_test_dir + "_fgsm_rep%s"%(rep)
@@ -514,17 +516,15 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         attackGen_test = SequenceBatchGenerator(**adv_test_params)
 
         x_fgsm, y_fgsm = attackGen_test.__getitem__(0)
-        #x_fgsm = fast_gradient_method(model, x_test, **fgsm_params)
 
-        print("Predicting on FGSM examples...")
+        print("\nPredicting on FGSM examples...")
         y_pred_fgsm = model.predict(x_fgsm)
         test_acc_fgsm(y_test, y_pred_fgsm)
         print('test acc on FGSM adversarial examples (%): {:.3f}'.format(test_acc_fgsm.result() * 100))
 
     if PGD:
-        ## Need to add the batch generator (above) for PGD attacks using the CNN
         # predict on adversarial test examples using PGD
-        print("Attacking using Projected Gradient Descent...")
+        print("\nAttacking using Projected Gradient Descent...")
         pgd_params = {'eps': 1.0,
                 'eps_iter': 1.0,
                 'nb_iter': 40,
@@ -532,25 +532,46 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                 'clip_min': 0.0,
                 'clip_max': 1.0,
                 'sanity_checks': False}
-        x_pgd = projected_gradient_descent(model, x_test, **pgd_params)
-        print("Predicting on PGD examples...")
+
+        # define the attack generator for test examples
+        adv_test_params = copy.deepcopy(TestParams)
+        adv_test_params["model"] = model
+        adv_test_params["attackName"] = "pgd"
+        adv_test_params["attackParams"] = pgd_params
+        adv_test_params["attackFraction"] = 1.0
+        adv_test_params["writeAttacks"] = True
+        adv_test_params["batchSize"] = attackBatchSize
+        attackGen_test = SequenceBatchGenerator(**adv_test_params)
+
+        # attack the entire test set and write adversarial examples to disk
+        print("Attacking the test set in batches of %s..."%(attackBatchSize))
+        num_batches = int(np.ceil(og_test_numReps/float(adv_test_params["batchSize"])))
+        t0 = time.perf_counter()
+        for i in range(num_batches):
+            attackGen_test.__getitem__(i)
+            progress_bar(i/float(num_batches))
+        progress_bar(num_batches/float(num_batches))
+        t1 = time.perf_counter()
+        print("\nAverage time per PGD attack (s):", round((t1-t0)/float(og_test_numReps),6))
+
+        # reset generator parameters
+        adv_test_dir = og_test_dir + "_pgd_rep%s"%(rep)
+        cmd = "cp %s %s"%(os.path.join(og_test_dir,"info.p"), os.path.join(adv_test_dir,"info.p"))
+        os.system(cmd)
+        adv_test_params["treesDirectory"] = adv_test_dir
+        adv_test_params["attackFraction"] = 0.0
+        adv_test_params["writeAttacks"] = False
+        adv_test_params["batchSize"] = og_test_bs
+        attackGen_test = SequenceBatchGenerator(**adv_test_params)
+
+        x_pgd, y_pgd = attackGen_test.__getitem__(0)
+
+        print("\nPredicting on PGD examples...")
         y_pred_pgd = model.predict(x_pgd)
         test_acc_pgd(y_test, y_pred_pgd)
         print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd.result() * 100))
 
-    ## predict on adversarial test examples using SPSA
-    #print("Attacking using SPSA...")
-    #spsa_params = {'eps': 1.0,
-    #        'nb_iter': 40,
-    #        'clip_min': 0.0,
-    #        'clip_max': 1.0}
-    #x_spsa = spsa(model, x=x_test, **spsa_params)
-    #print("Predicting on adversarial examples...")
-    #y_pred_spsa = model.predict(x_spsa)
-    #test_acc_spsa(y_test, y_pred_spsa)
-
-    #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
-
+    # Tally results
     print("results written to: ",resultsFile)
     history.history['loss'] = np.array(history.history['loss'])
     history.history['val_loss'] = np.array(history.history['val_loss'])
@@ -565,7 +586,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     if FGSM or PGD:
         # Save genotype images for testset
-        print("\nGenerating adversarial examples and writing images/predicions...")
+        print("\nSaving adversarial images...")
         if rep:
             imageDir = os.path.join(ProjectDir,"test_images"+"_rep%s"%(rep))
         else:
@@ -594,12 +615,13 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                 plt.imsave(pgd_imageFILE, pgd_image)
                 plt.imsave(pgd_delta_imageFILE, pgd_delta_image)
             progress_bar(i/float(x_test.shape[0]))
+        progress_bar(x_test.shape[0]/float(x_test.shape[0]))
         print("\n")
 
     if FGSM:
         ########## Adversarial training (FGSM) #############
         ## similar objects as above except these have the extension _fgsm and _pgd
-        print("\nRepeating the process, training training on adversarial examples (FGSM)")
+        print("Repeating the process, training training on adversarial examples (FGSM)")
         # define the attack generator for training examples
         adv_train_params = copy.deepcopy(TrainParams)
         adv_train_params["model"] = model
@@ -609,12 +631,14 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         adv_train_params["writeAttacks"] = True
         adv_train_params["batchSize"] = attackBatchSize
         attackGen_train = SequenceBatchGenerator(**adv_train_params)
+
         # attack the entire training set and write adversarial examples to disk
         print("Attacking the training set in batches of %s..."%(attackBatchSize))
         num_batches = int(np.ceil(og_train_numReps/float(adv_train_params["batchSize"])))
         for i in range(num_batches):
             x_train,y_train = attackGen_train.__getitem__(i)
             progress_bar(i/float(num_batches))
+        progress_bar(num_batches/float(num_batches))
 
         # define the attack generator for validation examples
         adv_vali_params = copy.deepcopy(ValiParams)
@@ -625,12 +649,14 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         adv_vali_params["writeAttacks"] = True
         adv_vali_params["batchSize"] = attackBatchSize
         attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
+
         # attack the entire validation set and write adversarial examples to disk
         print("\nAttacking the validation set in batches of %s..."%(attackBatchSize))
         num_batches = int(np.ceil(og_vali_numReps/float(adv_vali_params["batchSize"])))
         for i in range(num_batches):
             x_vali,y_vali = attackGen_vali.__getitem__(i)
             progress_bar(i/float(num_batches))
+        progress_bar(num_batches/float(num_batches))
 
         # reset generator parameters in preperation for model fit
         adv_train_params["attackFraction"] = attackFraction
@@ -643,6 +669,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
 
         ## define the new model
+        print('\n')
         model_fgsm = ModelFuncPointer(x_train,y_train)
 
         ## Early stopping and saving the best weights
@@ -709,13 +736,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             test_acc_pgd_fgsm(y_test, y_pred_pgd_fgsm)
             print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd_fgsm.result() * 100))
 
-        ## predict on adversarial test examples using SPSA
-        #print("Predicting on adversarial examples...")
-        #y_pred_spsa_2= model_2.predict(x_spsa)
-        #test_acc_spsa_2(y_test, y_pred_spsa_2)
-
-        #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
-
         ## write results
         print("results_fgsm written to: ",resultsFile.replace(".p","_fgsm.p"))
         history_fgsm.history['loss'] = np.array(history_fgsm.history['loss'])
@@ -742,6 +762,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         adv_train_params["writeAttacks"] = True
         adv_train_params["batchSize"] = attackBatchSize
         attackGen_train = SequenceBatchGenerator(**adv_train_params)
+
         # attack the entire training set and write adversarial examples to disk
         print("Attacking the training set in batches of %s..."%(attackBatchSize))
         num_batches = int(np.ceil(og_train_numReps/float(adv_train_params["batchSize"])))
@@ -758,6 +779,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         adv_vali_params["writeAttacks"] = True
         adv_vali_params["batchSize"] = attackBatchSize
         attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
+
         # attack the entire validation set and write adversarial examples to disk
         print("\nAttacking the validation set in batches of %s..."%(attackBatchSize))
         num_batches = int(np.ceil(og_vali_numReps/float(adv_vali_params["batchSize"])))
@@ -776,6 +798,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         attackGen_vali = SequenceBatchGenerator(**adv_vali_params)
 
         ## define the new model
+        print('\n')
         model_pgd = ModelFuncPointer(x_train,y_train)
 
         ## Early stopping and saving the best weights
@@ -792,7 +815,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                 ]
 
         # Train the network
-        ## CUDA initialization errors when trying to run this with use_multiprocessing=True
         history_pgd = model_pgd.fit(x=attackGen_train,
             steps_per_epoch= epochSteps,
             epochs=numEpochs,
@@ -843,13 +865,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         test_acc_pgd_pgd(y_test, y_pred_pgd_pgd)
         print('test acc on PGD adversarial examples (%): {:.3f}'.format(test_acc_pgd_pgd.result() * 100))
 
-        ## predict on adversarial test examples using SPSA
-        #print("Predicting on adversarial examples...")
-        #y_pred_spsa_2= model_2.predict(x_spsa)
-        #test_acc_spsa_2(y_test, y_pred_spsa_2)
-
-        #print('test acc on SPSA adversarial examples (%): {:.3f}'.format(test_acc_spsa.result() * 100))
-
         ## write results
         print("results_pgd written to: ",resultsFile.replace(".p","_pgd.p"))
         history_pgd.history['loss'] = np.array(history_pgd.history['loss'])
@@ -861,8 +876,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         history_pgd.history['Y_test'] = np.array(y_test)
         history_pgd.history['name'] = ModelName
         pickle.dump(history_pgd.history, open( resultsFile.replace(".p","_pgd.p"), "wb" ))
-
-
 
     ######### write log ###########
     outLog = resultsFile.replace(".p","_log.txt")
@@ -922,7 +935,6 @@ def predict_cleverhans_tf2(ModelFuncPointer,
     config.gpu_options.allow_growth = True
     Session(config=config)
     ###
-
 
     ########### Prediction on non-adversarial trained network #############
     # Load json and create model
@@ -1033,8 +1045,6 @@ def predict_cleverhans_tf2(ModelFuncPointer,
         newResultsFile = resultsFile.replace(".p","_pgd_params%s.p"%(paramsID))
         print("new results written to: ", newResultsFile)
         pickle.dump(history_pgd, open(newResultsFile, "wb"))
-
-
 
     ######### write log ###########
     outLog = resultsFile.replace(".p","_log_params%s.txt"%(paramsID))
