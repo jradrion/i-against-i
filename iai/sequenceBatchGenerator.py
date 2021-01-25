@@ -52,6 +52,7 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
             hotspots = False,
             rep = None,
             adaptive = None,
+            task = None
             ):
 
         self.adaptive = adaptive
@@ -82,6 +83,7 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         self.maf = maf
         self.hotspots = hotspots
         self.rep = rep
+        self.task = task
 
 
         if(targetNormalization != None):
@@ -214,7 +216,10 @@ class SequenceBatchGenerator(tf.keras.utils.Sequence):
         '''
 
         norm = self.targetNormalization
-        nTargets = copy.deepcopy(self.infoDir['gr'])
+        if self.task == "expansion":
+            nTargets = copy.deepcopy(self.infoDir['gr'])
+        if self.task == "admixture":
+            nTargets = copy.deepcopy(self.infoDir['m'])
 
         ### Use for categorical crossentropy
         tmps = []

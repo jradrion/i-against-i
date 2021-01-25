@@ -37,8 +37,12 @@ class Simulator(object):
         priorHighsMu = 1e-8,
         priorLowsGr = 0.0,
         priorHighsGr = 1e-8,
+        priorLowsM = 0.0,
+        priorHighsM = 1e-7,
         fractionGrowth = 0.5,
+        fractionAdmix = 0.5,
         ChromosomeLength = 1e5,
+        expansion = None,
         admixture = None,
         MspDemographics = None,
         winMasks = None,
@@ -64,16 +68,21 @@ class Simulator(object):
         self.priorHighsMu = priorHighsMu
         self.priorLowsGr = priorLowsGr
         self.priorHighsGr = priorHighsGr
+        self.priorLowsM = priorLowsM
+        self.priorHighsM = priorHighsM
         self.fractionGrowth = fractionGrowth
+        self.fractionAdmix = fractionAdmix
         self.ChromosomeLength = ChromosomeLength
         self.MspDemographics = MspDemographics
         self.rho = None
         self.mu = None
+        self.m = None
         self.segSites = None
         self.winMasks = winMasks
         self.mdMask = mdMask
         self.maskThresh = maskThresh
         self.phased = None
+        self.expansion = expansion
         self.admixture = admixture
         self.phaseError = phaseError
         self.seed = seed
@@ -95,11 +104,14 @@ class Simulator(object):
         MR = self.mu[simNum]
         RR = self.rho[simNum]
         GR = self.gr[simNum]
+        MIG = self.m[simNum]
         NE = self.ne[simNum]
         SEED = self.seed[simNum]
 
-        if not self.admixture:
-            if GR != 0.0:
+        #GR = GR * -1.0 ######remove after testing pop crash
+
+        if self.expansion and not self.admixture:
+            if GR > 0.0:
                 PC = [msp.PopulationConfiguration(
                     sample_size=self.N,
                     initial_size=NE,
@@ -121,9 +133,8 @@ class Simulator(object):
                     mutation_rate=MR,
                     recombination_rate=RR
                 )
-        else:
-            #reciprocal migration at rate GR
-            if GR != 0.0:
+        elif self.admixture and not self.expansion:
+            if MIG > 0.0:
                 PC = [
                         msp.PopulationConfiguration(
                             sample_size=self.N,
@@ -134,8 +145,8 @@ class Simulator(object):
                             initial_size=NE)
                         ]
 
-                MM = [[      0, GR],
-                        [GR,       0]]
+                MM = [[      0, MIG],
+                        [MIG,       0]]
 
                 DE = []
                 DD = msp.DemographyDebugger(
@@ -165,6 +176,98 @@ class Simulator(object):
                     mutation_rate=MR,
                     recombination_rate=RR
                 )
+        elif self.admixture and self.expansion:
+            if MIG > 0.0 and GR > 0.0:
+                PC = [
+                        msp.PopulationConfiguration(
+                            sample_size=self.N,
+                            initial_size=NE,
+                            growth_rate=GR),
+
+                        msp.PopulationConfiguration(
+                            sample_size=self.N,
+                            initial_size=NE,
+                            growth_rate=GR)
+                        ]
+
+                MM = [[      0, MIG],
+                        [MIG,       0]]
+
+                DE = []
+                DD = msp.DemographyDebugger(
+                        population_configurations=PC,
+                        migration_matrix=MM,
+                        demographic_events=DE)
+                ts = msp.simulate(
+                    random_seed = SEED,
+                    length=self.ChromosomeLength,
+                    mutation_rate=MR,
+                    recombination_rate=RR,
+                    population_configurations = PC,
+                    migration_matrix = MM,
+                    demographic_events = DE
+
+                )
+            elif MIG > 0.0 and GR == 0.0:
+                PC = [
+                        msp.PopulationConfiguration(
+                            sample_size=self.N,
+                            initial_size=NE),
+
+                        msp.PopulationConfiguration(
+                            sample_size=self.N,
+                            initial_size=NE)
+                        ]
+
+                MM = [[      0, MIG],
+                        [MIG,       0]]
+
+                DE = []
+                DD = msp.DemographyDebugger(
+                        population_configurations=PC,
+                        migration_matrix=MM,
+                        demographic_events=DE)
+                ts = msp.simulate(
+                    random_seed = SEED,
+                    length=self.ChromosomeLength,
+                    mutation_rate=MR,
+                    recombination_rate=RR,
+                    population_configurations = PC,
+                    migration_matrix = MM,
+                    demographic_events = DE
+
+                )
+            elif GR > 0.0 and MIG == 0.0:
+                PC = [msp.PopulationConfiguration(
+                    sample_size=self.N,
+                    initial_size=NE,
+                    growth_rate=GR)]
+
+                ts = msp.simulate(
+                    random_seed = SEED,
+                    length=self.ChromosomeLength,
+                    mutation_rate=MR,
+                    recombination_rate=RR,
+                    population_configurations = PC,
+                )
+            else:
+                ts = msp.simulate(
+                    random_seed = SEED,
+                    sample_size = self.N,
+                    Ne = self.Ne_noGrowth,
+                    length=self.ChromosomeLength,
+                    mutation_rate=MR,
+                    recombination_rate=RR
+                )
+        else:
+            ts = msp.simulate(
+                random_seed = SEED,
+                sample_size = self.N,
+                Ne = self.Ne_noGrowth,
+                length=self.ChromosomeLength,
+                mutation_rate=MR,
+                recombination_rate=RR
+            )
 
 
         # Convert tree sequence to genotype matrix, and position matrix
@@ -366,6 +469,10 @@ class Simulator(object):
             for i in range(int(numReps*self.fractionGrowth)):
                 randomTargetParameter = np.random.uniform(self.priorLowsGr,self.priorHighsGr)
                 self.gr[i] = randomTargetParameter
+            self.m=np.zeros(numReps)
+            for i in range(int(numReps*self.fractionAdmix)):
+                randomTargetParameter = np.random.uniform(self.priorLowsM,self.priorHighsM)
+                self.m[i] = randomTargetParameter
             ### restrict area of parameter space for positive control
             #for i in range(int(numReps*self.fractionGrowth)):
             #    randomTargetParameter = 5e-6
@@ -403,29 +510,37 @@ class Simulator(object):
             nbins = 100
             if direc.split("/")[-1] == "train":
                 plt.figure(0)
-                outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_gr.png")
-                fig = plt.hist(self.gr,
-                        range=(0.0,self.priorHighsGr),
-                        bins=nbins)
-                plt.savefig(outFile)
-                plt.figure(1)
                 outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_mu.png")
                 fig = plt.hist(self.mu,
                         range=(self.priorLowsMu,self.priorHighsMu),
                         bins=nbins)
                 plt.savefig(outFile)
-                plt.figure(2)
+                plt.figure(1)
                 outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_ne.png")
                 fig = plt.hist(self.ne,
                         range=(self.Ne_growth_lo,self.Ne_growth_hi),
                         bins=nbins)
                 plt.savefig(outFile)
-                plt.figure(3)
+                plt.figure(2)
                 outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_rho.png")
                 fig = plt.hist(self.rho,
                         range=(self.priorLowsRho,self.priorHighsRho),
                         bins=nbins)
                 plt.savefig(outFile)
+                if self.expansion:
+                    plt.figure(3)
+                    outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_gr.png")
+                    fig = plt.hist(self.gr,
+                            range=(0.0,self.priorHighsGr),
+                            bins=nbins)
+                    plt.savefig(outFile)
+                if self.admixture:
+                    plt.figure(4)
+                    outFile = os.path.join("/".join(d for d in direc.split("/")[:-1]),"train_mig.png")
+                    fig = plt.hist(self.m,
+                            range=(0.0,self.priorHighsM),
+                            bins=nbins)
+                    plt.savefig(outFile)
 
 
 
@@ -541,25 +656,29 @@ class Simulator(object):
             item = result_q.get()
             self.segSites[item[0]]=item[1]
 
-        gr,no_gr=[],[]
-        for i in range(len(self.gr)):
-            if self.gr[i] == 0.0:
-                no_gr.append(self.segSites[i])
-            else:
-                gr.append(self.segSites[i])
+        #gr,no_gr=[],[]
+        #for i in range(len(self.gr)):
+        #    if self.gr[i] == 0.0:
+        #        no_gr.append(self.segSites[i])
+        #    else:
+        #        gr.append(self.segSites[i])
 
-        if gr:
-            if self.admixture:
-                print("mean segSites with admixture:", sum(gr)/float(len(gr)))
-            else:
-                print("mean segSites with growth:", sum(gr)/float(len(gr)))
-        if no_gr:
-            if self.admixture:
-                print("mean segSites no admixture:", sum(no_gr)/float(len(no_gr)))
-            else:
-                print("mean segSites no growth:", sum(no_gr)/float(len(no_gr)))
+        #if gr:
+        #    if self.admixture:
+        #        print("mean segSites with expansion/admixture:", sum(gr)/float(len(gr)))
+        #    else:
+        #        print("mean segSites with expansion:", sum(gr)/float(len(gr)))
+        #if no_gr:
+        #    if self.admixture:
+        #        print("mean segSites no admixture:", sum(no_gr)/float(len(no_gr)))
+        #    else:
+        #        print("mean segSites no growth:", sum(no_gr)/float(len(no_gr)))
 
         self.__dict__["numReps"] = numReps
+        if self.expansion:
+            self.__dict__["expansion"] = True
+        else:
+            self.__dict__["expansion"] = False
         if self.admixture:
             self.__dict__["admixture"] = True
         else:

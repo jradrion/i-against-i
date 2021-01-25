@@ -9,6 +9,7 @@ from iai.trainer import *
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('--task',dest='task',help='Train to detect either expansion or admixture',default=None)
     parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
     parser.add_argument('-a','--attackFraction',dest='attackFraction',help='Fraction of training set to be comprised of adversarial examples', type=float, default=0.0)
     parser.add_argument('-ab','--attackBatchSize',dest='attackBatchSize',help='Size of the batch for attacking the train/vailidation sets', type=int, default=1000)
@@ -76,6 +77,7 @@ def main():
         networkDir = os.path.join(projectDir,"networks")
     
     admixture=pickle.load(open(os.path.join(networkDir,"simPars.p"), "rb"))["admixture"]
+    expansion=pickle.load(open(os.path.join(networkDir,"simPars.p"), "rb"))["expansion"]
 
     trainDir = os.path.join(projectDir,"train")
     valiDir = os.path.join(projectDir,"vali")
@@ -121,7 +123,8 @@ def main():
         'realLinePos':True,
         'posPadVal':0,
         'seqD':None,
-        'rep':args.rep
+        'rep':args.rep,
+        'task':args.task
               }
 
 
@@ -205,7 +208,8 @@ def main():
                 rep=args.rep,
                 FGSM=args.fgsm,
                 PGD=args.pgd) 
-    
+        
+        
         ### Plot results of predictions on test set
         plotResultsSoftmax2Heatmap(resultsFile=test_resultFile,saveas=test_resultFig,admixture=admixture)
         if args.fgsm:

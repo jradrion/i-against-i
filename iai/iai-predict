@@ -9,6 +9,7 @@ from iai.trainer import *
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d','--projectDir',dest='outDir',help='Directory for all project output. NOTE: the same projectDir must be used for all functions of i-against-i',default=None)
+    parser.add_argument('--task',dest='task',help='Train to detect either expansion or admixture',default=None)
     parser.add_argument('--adaptive',help='use adaptive training instead of adversarial training',default=False, action='store_true')
     parser.add_argument('--paramsID',help='paramsID',type=int,default=None)
     parser.add_argument('-m','--maxSegSites',dest='maxSegSites',help='All tensors exceeding this length with be trimmed', type=int, default=1000)
@@ -84,7 +85,10 @@ def main():
         'derVal':1,
         'realLinePos':True,
         'posPadVal':0,
-        'seqD':None}
+        'seqD':None,
+        'rep':args.rep,
+        'task':args.task
+        }
 
 
     ## Dump batch pars for bootstrap
@@ -153,16 +157,20 @@ def main():
                 gpuID=args.gpuID,
                 paramsID=args.paramsID,
                 FGSM=args.fgsm,
-                PGD=args.pgd)
+                PGD=args.pgd,
+                task=args.task)
 
-
+        
         ## Plot results of predictions on test set
         file1 = test_resultFile.replace(".p","_params%s.p"%(args.paramsID))
         if args.fgsm:
             plotResultsSoftmax2HeatmapMis(resultsFile=file1, resultsFile2=test_resultFile.replace(".p","_fgsm_params%s.p"%(args.paramsID)), saveas=test_resultFig.replace(".pdf","_fgsm_params%s.pdf"%(args.paramsID)),admixture=admixture)
+            #cmd = ("rm %s" %test_resultFig.replace(".pdf","_fgsm_params2.pdf")) ###################################################################################################################
+            #os.system(cmd)
         if args.pgd:
             plotResultsSoftmax2HeatmapMis(resultsFile=file1, resultsFile2=test_resultFile.replace(".p","_pgd_params%s.p"%(args.paramsID)), saveas=test_resultFig.replace(".pdf","_pgd_params%s.pdf"%(args.paramsID)),admixture=admixture)
-        #plotSummaryStats(projectDir_A=projectDir_A, projectDir_B=projectDir_B, saveas=test_resultFig.replace(".pdf","_stats.pdf"))
+            #cmd = "rm %s" %(test_resultFig.replace(".pdf","_pgd_params2.pdf")) #####################################################################################################################
+            #os.system(cmd)
     
     print("\n***FINISHED!***\n")
 

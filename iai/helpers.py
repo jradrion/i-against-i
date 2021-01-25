@@ -924,7 +924,8 @@ def predict_cleverhans_tf2(ModelFuncPointer,
             gpuID = 0,
             paramsID = None,
             FGSM=False,
-            PGD=False):
+            PGD=False,
+            task=None):
 
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpuID)
 
@@ -958,10 +959,13 @@ def predict_cleverhans_tf2(ModelFuncPointer,
     predictions = model.predict(x_test)
 
     #replace predictions and Y_test in results file
-
     history= pickle.load(open(resultsFile, "rb"))
     tmp = []
-    for gr in test_info["gr"]:
+    if task == "expansion":
+        task_key = "gr"
+    if task == "admixture":
+        task_key = "m"
+    for gr in test_info[task_key]:
         if gr > 0.0:
             tmp.append([0.0,1.0])
         else:
@@ -994,7 +998,7 @@ def predict_cleverhans_tf2(ModelFuncPointer,
         #replace predictions and T_test in results file
         history_fgsm = pickle.load(open(resultsFile.replace(".p","_fgsm.p"), "rb"))
         tmp = []
-        for gr in test_info["gr"]:
+        for gr in test_info[task_key]:
             if gr > 0.0:
                 tmp.append([0.0,1.0])
             else:
@@ -1027,7 +1031,7 @@ def predict_cleverhans_tf2(ModelFuncPointer,
         #replace predictions and T_test in results file
         history_pgd = pickle.load(open(resultsFile.replace(".p","_pgd.p"), "rb"))
         tmp = []
-        for gr in test_info["gr"]:
+        for gr in test_info[task_key]:
             if gr > 0.0:
                 tmp.append([0.0,1.0])
             else:

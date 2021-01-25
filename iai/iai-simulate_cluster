@@ -111,8 +111,8 @@ def main():
     dg_trial = Simulator(**dg_params)
     
     print("\nDetermine relative Ne for simulations with and without expansion/admixture...")
-    dg_trial.simulateAndProduceTrees(numReps=int(args.nTrain/100.0),direc=trialDir,simulator="msprime",nProc=nProc)
-    #dg_trial.simulateAndProduceTrees(numReps=1000,direc=trialDir,simulator="msprime",nProc=nProc) #assume 1000 reps is enough to sample distribution
+    #dg_trial.simulateAndProduceTrees(numReps=int(args.nTrain/100.0),direc=trialDir,simulator="msprime",nProc=nProc)
+    dg_trial.simulateAndProduceTrees(numReps=1000,direc=trialDir,simulator="msprime",nProc=nProc) #assume 1000 reps is enough to sample distribution
 
     DsInfoDir = pickle.load(open(os.path.join(trialDir,"info.p"),"rb"))
     S = DsInfoDir["segSites"]
@@ -240,52 +240,52 @@ def main():
     #f.savefig(outfile, bbox_inches='tight')
     #plt.close()
 
-    ## remove directories and trim
-    if args.paramsID:
-        shutil.rmtree(trialDir)
-        shutil.rmtree(trainDir)
-        shutil.rmtree(valiDir)
-        trainDir = os.path.join(projectDir,"train")
-        valiDir = os.path.join(projectDir,"vali")
-        if args.trim:
-            maxSegSites = float("inf")
-            for nDir in [trainDir,valiDir]:
-                S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
-                maxSegSites = min(maxSegSites, S_min)
-            for nDir in [testDir]: #only trim testDir as train and vali would have been trimmed earlier
-                print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(nDir,maxSegSites))
-                numReps = pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["numReps"]
-                for i in range(numReps):
-                    Hfilepath = os.path.join(nDir, str(i) + "_haps.npy")
-                    Pfilepath = os.path.join(nDir, str(i) + "_pos.npy")
-                    H = np.load(Hfilepath)
-                    P = np.load(Pfilepath)
-                    H = H[:maxSegSites]
-                    P = P[:maxSegSites]
-                    np.save(Hfilepath,H)
-                    np.save(Pfilepath,P)
-                    progress_bar((i+1)/float(numReps))
+    ### remove directories and trim
+    #if args.paramsID:
+    #    shutil.rmtree(trialDir)
+    #    shutil.rmtree(trainDir)
+    #    shutil.rmtree(valiDir)
+    #    trainDir = os.path.join(projectDir,"train")
+    #    valiDir = os.path.join(projectDir,"vali")
+    #    if args.trim:
+    #        maxSegSites = float("inf")
+    #        for nDir in [trainDir,valiDir]:
+    #            S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
+    #            maxSegSites = min(maxSegSites, S_min)
+    #        for nDir in [testDir]: #only trim testDir as train and vali would have been trimmed earlier
+    #            print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(nDir,maxSegSites))
+    #            numReps = pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["numReps"]
+    #            for i in range(numReps):
+    #                Hfilepath = os.path.join(nDir, str(i) + "_haps.npy")
+    #                Pfilepath = os.path.join(nDir, str(i) + "_pos.npy")
+    #                H = np.load(Hfilepath)
+    #                P = np.load(Pfilepath)
+    #                H = H[:maxSegSites]
+    #                P = P[:maxSegSites]
+    #                np.save(Hfilepath,H)
+    #                np.save(Pfilepath,P)
+    #                progress_bar((i+1)/float(numReps))
 
-    else:
-        shutil.rmtree(trialDir)
-        if args.trim:
-            maxSegSites = float("inf")
-            for nDir in [trainDir,valiDir]:
-                S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
-                maxSegSites = min(maxSegSites, S_min)
-            for nDir in [trainDir,valiDir,testDir]:
-                print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(nDir,maxSegSites))
-                numReps = pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["numReps"]
-                for i in range(numReps):
-                    Hfilepath = os.path.join(nDir, str(i) + "_haps.npy")
-                    Pfilepath = os.path.join(nDir, str(i) + "_pos.npy")
-                    H = np.load(Hfilepath)
-                    P = np.load(Pfilepath)
-                    H = H[:maxSegSites]
-                    P = P[:maxSegSites]
-                    np.save(Hfilepath,H)
-                    np.save(Pfilepath,P)
-                    progress_bar((i+1)/float(numReps))
+    #else:
+    #    shutil.rmtree(trialDir)
+    #    if args.trim:
+    #        maxSegSites = float("inf")
+    #        for nDir in [trainDir,valiDir]:
+    #            S_min = min(pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["segSites"])
+    #            maxSegSites = min(maxSegSites, S_min)
+    #        for nDir in [trainDir,valiDir,testDir]:
+    #            print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(nDir,maxSegSites))
+    #            numReps = pickle.load(open(os.path.join(nDir,"info.p"),"rb"))["numReps"]
+    #            for i in range(numReps):
+    #                Hfilepath = os.path.join(nDir, str(i) + "_haps.npy")
+    #                Pfilepath = os.path.join(nDir, str(i) + "_pos.npy")
+    #                H = np.load(Hfilepath)
+    #                P = np.load(Pfilepath)
+    #                H = H[:maxSegSites]
+    #                P = P[:maxSegSites]
+    #                np.save(Hfilepath,H)
+    #                np.save(Pfilepath,P)
+    #                progress_bar((i+1)/float(numReps))
 
         
     print("\n\n***FINISHED***\n")
