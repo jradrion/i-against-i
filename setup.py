@@ -20,7 +20,6 @@ setup(name='i-against-i',
           "scikit-allel>=1.2.1"],
       scripts=[
             "iai/iai-simulate",
-            "iai/iai-simulate_cluster",
             "iai/iai-explore",
             "iai/iai-train",
             "iai/iai-attack_diploshic",
