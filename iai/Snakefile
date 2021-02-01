@@ -1,0 +1,73 @@
+"""
+Snakefile for running iai-simulate on a cluster
+"""
+
+from iai.imports import *
+from iai.helpers import * 
+
+# ###############################################################################
+# KNOBS - 
+# ###############################################################################
+
+configfile: config["config"]+"/config.json"
+
+output_dir = os.path.abspath(config["config"])
+seed = config["seed"]
+reps = config["reps"]
+rep_array = np.array([x+1 for x in range(reps)])
+procs_per_rep = config["procs_per_rep"]
+nTrial = config["nTrial"]
+nTrain = config["nTrain_per_rep"]
+nVali = config["nVali_per_rep"]
+nTest = config["nTest_per_rep"]
+base_cmd = config["base_cmd"]
+
+# ###############################################################################
+# GENERAL RULES & GLOBALS
+# ###############################################################################
+
+rule all:
+    input:
+        os.path.join(output_dir,"networks","simPars.p")
+
+# ###############################################################################
+# SIMULATE TRIAL
+# ###############################################################################
+
+rule simulate_trial:
+    output:
+        os.path.join(output_dir,"trial","info.p")
+    run:
+        trial_cmd = base_cmd + " --trial_only --nTrial {} -d {} -s {} ".format(nTrial, output_dir, seed)
+        print("\ntrial_cmd:",trial_cmd,"\n")
+        os.system(trial_cmd)
+
+# ###############################################################################
+# SIMULATE REPS
+# ###############################################################################
+
+rule simulate_reps:
+    input:
+        os.path.join(output_dir,"trial","info.p")
+    output:
+        output_dir + "/rep{rep_array}/test/info.p"
+    run:
+        ne_from_theta = pickle.load(open(os.path.join(output_dir,"trial","info.p"),"rb"))["ne_from_theta"]
+        rep_dir = output_dir + "/rep{}/".format(str(wildcards.rep_array)) 
+        rep_cmd = base_cmd + " --ne_no_growth {} --nTrain {} --nVali {} --nTest {} -t {} -s {} -d {}".format(
+        ne_from_theta, nTrain, nVali, nTest, procs_per_rep, str(wildcards.rep_array
+        ), rep_dir)
+        print("\nreplicate_cmd:",rep_cmd,"\n")
+        os.system(rep_cmd)
+        
+# ###############################################################################
+# STITCH
+# ###############################################################################
+
+rule stitch:
+    input:
+        expand(output_dir + "/rep{rep_array}/test/info.p", rep_array=rep_array),
+    output:
+        os.path.join(output_dir,"networks","simPars.p")
+    run:
+        stitch_snakemake_reps(output_dir,seed,reps)

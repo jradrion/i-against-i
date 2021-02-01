@@ -1868,3 +1868,89 @@ def plotParametricBootstrap(results,saveas):
 
     return None
 
+#-------------------------------------------------------------------------------------------
+
+def stitch_snakemake_reps(projectDir, seed=None, reps=None, trim=True):
+    '''
+    combine the simulations and corresponding info files
+    created using snakemake into a directory structure
+    that looks as if it was created using the standard
+    iai-simulate pipeline
+    '''
+
+    ## Make directories if they do not exist
+    trainDir = os.path.join(projectDir,"train")
+    valiDir = os.path.join(projectDir,"vali")
+    testDir = os.path.join(projectDir,"test")
+    networkDir = os.path.join(projectDir,"networks")
+
+    ## Might need to add some info keys if using grid params?
+    info_keys = ["rho","mu","m","segSites","seed","gr","ne"]
+
+    ## Combine the `info.p` files
+    maxSegSites = float("inf")
+    sims_per_rep = [0,0,0]
+    for i,new_dir in enumerate([trainDir,valiDir,testDir]):
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+        new_info_file = {}
+        for j in range(reps):
+            trainRep = os.path.join(projectDir,"rep{}".format(j+1),"train")
+            valiRep = os.path.join(projectDir,"rep{}".format(j+1),"vali")
+            testRep = os.path.join(projectDir,"rep{}".format(j+1),"test")
+            networkRep = os.path.join(projectDir,"rep{}".format(j+1),"networks")
+            rep_dirs = [trainRep,valiRep,testRep]
+            info_file = pickle.load(open(os.path.join(rep_dirs[i],"info.p"),"rb"))
+            sims_per_rep[i] = info_file["numReps"]
+            try:
+                new_info_file["numReps"] += info_file["numReps"]
+                for key in info_keys:
+                    new_array = np.concatenate((new_info_file[key], info_file[key]), axis=None)
+                    new_info_file[key] = new_array
+            except KeyError:
+                new_info_file = info_file
+        S_min = min(new_info_file["segSites"])
+        maxSegSites = min(maxSegSites, S_min)
+        pickle.dump(new_info_file, open(os.path.join(new_dir, "info.p"), "wb"))
+
+    ## Add the `simPars.p` file
+    if not os.path.exists(networkDir):
+        os.makedirs(networkDir)
+    simPars = pickle.load(open(os.path.join(networkRep,"simPars.p"),"rb"))
+    simPars["seed"] = seed
+    simPars["bn"] = os.path.basename(projectDir)
+    pickle.dump(simPars, open(os.path.join(networkDir,"simPars.p"),"wb"))
+
+    ## Move and rename the simulation files
+    for i,new_dir in enumerate([trainDir,valiDir,testDir]):
+        print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(new_dir,maxSegSites))
+        new_index = 0
+        for j in range(reps):
+            trainRep = os.path.join(projectDir,"rep{}".format(j+1),"train")
+            valiRep = os.path.join(projectDir,"rep{}".format(j+1),"vali")
+            testRep = os.path.join(projectDir,"rep{}".format(j+1),"test")
+            rep_dirs = [trainRep,valiRep,testRep]
+            for k in range(sims_per_rep[i]):
+                H_orig_file = os.path.join(rep_dirs[i], "{}_haps.npy".format(k))
+                P_orig_file = os.path.join(rep_dirs[i], "{}_pos.npy".format(k))
+                H_new_file = os.path.join(new_dir, "{}_haps.npy".format(new_index))
+                P_new_file = os.path.join(new_dir, "{}_pos.npy".format(new_index))
+                H = np.load(H_orig_file)
+                P = np.load(P_orig_file)
+                H = H[:maxSegSites]
+                P = P[:maxSegSites]
+                np.save(H_new_file,H)
+                np.save(P_new_file,P)
+                os.remove(H_orig_file)
+                os.remove(P_orig_file)
+                progress_bar((k+1)/float(sims_per_rep[i]))
+                new_index += 1
+
+    ## Remove original rep directory
+    for j in range(reps):
+        rep_dir = os.path.join(projectDir,"rep{}".format(j+1))
+        shutil.rmtree(rep_dir)
+
+    return None
+
+

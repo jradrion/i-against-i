@@ -54,7 +54,8 @@ class Simulator(object):
         bn = None,
         testGrid = 0,
         gridParams = None,
-        gridPars = None
+        gridPars = None,
+        pretrim = 0,
         ):
 
         self.N = N
@@ -86,6 +87,7 @@ class Simulator(object):
         self.admixture = admixture
         self.phaseError = phaseError
         self.seed = seed
+        self.pretrim = pretrim
         self.testGrid = testGrid
         self.gridPars = gridPars
         if gridParams:
@@ -314,6 +316,14 @@ class Simulator(object):
             if rand_mask[0] > 0.0:
                 H,P = self.maskGenotypes(H, P, rand_mask)
 
+        # get number of segregating sites prior to pretrim
+        pretrim_S = H.shape[0]
+
+        # Pretrim output to reduce storage space
+        if 0 < self.pretrim < pretrim_S:
+            H = H[:self.pretrim,:]
+            P = P[:self.pretrim]
+
         # Dump
         Hname = str(simNum) + "_haps.npy"
         Hpath = os.path.join(direc,Hname)
@@ -323,7 +333,7 @@ class Simulator(object):
         np.save(Ppath,P)
 
         # Return number of sites
-        return H.shape[0]
+        return pretrim_S
 
 
     def maskGenotypes(self, H, P, rand_mask):

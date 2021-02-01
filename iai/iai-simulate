@@ -27,32 +27,44 @@ def main():
     parser.add_argument('--cLen',dest='cLen',help='Length of chromosome to simulate',type=int,default=1000000)
     parser.add_argument('--sam',dest='sam',help='sample size',type=int,default=10)
     parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
-    parser.add_argument('-t','--nCPU',dest='nCPU',help='Number of CPUs to use',type=int,default=1)
-    parser.add_argument('--trim',help='If set, genotype and position matrixes will be trimmed down to the length of the fewest number of SNPs',default=False, action='store_true')
+    parser.add_argument("-t","--nCPU",dest="nCPU",help="number of cores to use (default uses all available)",
+            type=int,default=None)
+    parser.add_argument('--pretrim',dest='pretrim',
+        help='If set, genotype and position matrixes will first be trimmed down to this length to save storage space',
+        type=int,default=0)
+    parser.add_argument('--trim',help='If set, genotype and position matrixes will be trimmed down to the length of the fewest number of SNPs across all simulations',default=False, action='store_true')
     parser.add_argument('--phased',help='Treat genotypes as phased',default=False, action='store_true')
     parser.add_argument('--unphased',dest='phased',help='Treat genotypes as unphased',action='store_false')
+    parser.add_argument('--trial_only',dest='trial_only',help='Only simulate under "trial" parameters',default=False,action='store_true')
+    parser.add_argument('--ne_no_growth',dest='ne_no_growth',
+            help='Do not run trial and instead use this effective population size for no-growth sims',type=float,default=None)
     parser.add_argument('--paramsID',help='paramsID',type=int,default=None)
+    parser.add_argument('--nTrial',dest='nTrial',help='Number of trial examples to simulate',type=int,default=None)
     parser.add_argument('--nTrain',dest='nTrain',help='Number of training examples to simulate',type=int,default=100000)
     parser.add_argument('--nVali',dest='nVali',help='Number of validation examples to simulate',type=int,default=1000)
     parser.add_argument('--nTest',dest='nTest',help='Number of test examples to simulate',type=int,default=1000)
     args = parser.parse_args()
     
-    # Ensure all required arguments are provided
+    ## Ensure all required arguments are provided
     if not args.outDir:
         print("Warning: No project directory found, using current working directory.")
         projectDir = os.getcwd()
     else:
         projectDir = args.outDir
     
-    ### Set seed
+    ## Set seed
     if args.seed:
         os.environ['PYTHONHASHSEED']=str(args.seed)
         random.seed(args.seed)
         np.random.seed(args.seed)
 
-
+    # set number of cores to use
+    if args.nCPU:
+        nProc = args.nCPU
+    else:
+        nProc=mp.cpu_count()
+    
     ## Set up the directory structure to store the simulations data.
-    nProc = args.nCPU
     if args.paramsID:
         ID = args.paramsID
         trialDir = os.path.join(projectDir,"trial_params%s"%(ID))
@@ -69,9 +81,13 @@ def main():
 
 
     ## Make directories if they do not exist
-    for p in [projectDir,trialDir,trainDir,valiDir,testDir,networkDir]:
-        if not os.path.exists(p):
-            os.makedirs(p)
+    if args.trial_only:
+        if not os.path.exists(trialDir):
+            os.makedirs(trialDir)
+    else:
+        for p in [projectDir,trialDir,trainDir,valiDir,testDir,networkDir]:
+            if not os.path.exists(p):
+                os.makedirs(p)
     assumedMu_lo = args.mu_lo
     assumedMu_hi = args.mu_hi
     assumedR_lo = args.r_lo
@@ -85,49 +101,61 @@ def main():
     nSamps = args.sam
     cLen = args.cLen
     
+    ## Run "trial" simulations to obtain Ne under no-growth/no-admixture
+    if not args.ne_no_growth:
+        dg_params = {'N':nSamps,
+            'Ne_growth_lo':assumedNe_lo,
+            'Ne_growth_hi':assumedNe_hi,
+            'priorLowsRho':assumedR_lo,
+            'priorHighsRho':assumedR_hi,
+            'priorLowsMu':assumedMu_lo,
+            'priorHighsMu':assumedMu_hi,
+            'priorLowsGr':assumedGr_lo,
+            'priorHighsGr':assumedGr_hi,
+            'priorLowsM':assumedM_lo,
+            'priorHighsM':assumedM_hi,
+            'ChromosomeLength':cLen,
+            'winMasks':None,
+            'maskThresh':None,
+            'phased':args.phased,
+            'fractionGrowth': 1.0,
+            'fractionAdmix': 1.0,
+            'expansion': args.expansion,
+            'admixture': args.admixture,
+            'seed':args.seed,
+            'pretrim':args.pretrim
+                  }
+
+        # Assign pars for each simulation
+        dg_trial = Simulator(**dg_params)
+        
+        print("\nDetermine relative Ne for simulations with and without expansion/admixture...")
+        if args.nTrial:
+            dg_trial.simulateAndProduceTrees(numReps=args.nTrial,direc=trialDir,simulator="msprime",nProc=nProc)
+        else:
+            dg_trial.simulateAndProduceTrees(numReps=int(args.nTrain/100.0),direc=trialDir,simulator="msprime",nProc=nProc)
+        
+        DsInfoDir = pickle.load(open(os.path.join(trialDir,"info.p"),"rb"))
+        S = DsInfoDir["segSites"]
+        a=0
+        for i in range(nSamps-1):
+            a+=1/(i+1)
+        thetaW=np.average(S)/float(a)
+        ne_from_theta=int(thetaW/(4.0 * np.mean([assumedMu_lo,assumedMu_hi]) * cLen))
+        DsInfoDir["ne_from_theta"] = ne_from_theta
+        pickle.dump(DsInfoDir,open(os.path.join(trialDir,"info.p"),"wb"))
+
+        print("Ne inferred from thetaW:",ne_from_theta)
+        if args.trial_only:
+            sys.exit()
+    else:
+        ne_from_theta = args.ne_no_growth
+    
+    
     dg_params = {'N':nSamps,
         'Ne_growth_lo':assumedNe_lo,
         'Ne_growth_hi':assumedNe_hi,
-        'priorLowsRho':assumedR_lo,
-        'priorHighsRho':assumedR_hi,
-        'priorLowsMu':assumedMu_lo,
-        'priorHighsMu':assumedMu_hi,
-        'priorLowsGr':assumedGr_lo,
-        'priorHighsGr':assumedGr_hi,
-        'priorLowsM':assumedM_lo,
-        'priorHighsM':assumedM_hi,
-        'ChromosomeLength':cLen,
-        'winMasks':None,
-        'maskThresh':None,
-        'phased':args.phased,
-        'fractionGrowth': 1.0,
-        'fractionAdmix': 1.0,
-        'expansion': args.expansion,
-        'admixture': args.admixture,
-        'seed':args.seed
-              }
-
-    # Assign pars for each simulation
-    dg_trial = Simulator(**dg_params)
-    
-    print("\nDetermine relative Ne for simulations with and without expansion/admixture...")
-    dg_trial.simulateAndProduceTrees(numReps=int(args.nTrain/100.0),direc=trialDir,simulator="msprime",nProc=nProc)
-    #dg_trial.simulateAndProduceTrees(numReps=1000,direc=trialDir,simulator="msprime",nProc=nProc) #assume 1000 reps is enough to sample distribution
-
-    DsInfoDir = pickle.load(open(os.path.join(trialDir,"info.p"),"rb"))
-    S = DsInfoDir["segSites"]
-    a=0
-    for i in range(nSamps-1):
-        a+=1/(i+1)
-    thetaW=np.average(S)/float(a)
-    Ne_fromTheta=int(thetaW/(4.0 * np.mean([assumedMu_lo,assumedMu_hi]) * cLen))
-    
-    print("Ne inferred from thetaW:",Ne_fromTheta)
-    
-    dg_params = {'N':nSamps,
-        'Ne_growth_lo':assumedNe_lo,
-        'Ne_growth_hi':assumedNe_hi,
-        'Ne_noGrowth':Ne_fromTheta,
+        'Ne_noGrowth':ne_from_theta,
         'priorLowsRho':assumedR_lo,
         'priorHighsRho':assumedR_hi,
         'priorLowsMu':assumedMu_lo,
@@ -144,7 +172,8 @@ def main():
         'fractionAdmix': args.pAdmix,
         'expansion': args.expansion,
         'admixture': args.admixture,
-        'seed':args.seed
+        'seed':args.seed,
+        'pretrim':args.pretrim
               }
     
     
