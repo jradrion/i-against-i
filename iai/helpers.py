@@ -1870,9 +1870,9 @@ def plotParametricBootstrap(results,saveas):
 
 #-------------------------------------------------------------------------------------------
 
-def stitch_snakemake_reps(projectDir, seed=None, reps=None, trim=True):
+def snakemake_stitch_info(projectDir, seed=None, reps=None):
     '''
-    combine the simulations and corresponding info files
+    combine the info files
     created using snakemake into a directory structure
     that looks as if it was created using the standard
     iai-simulate pipeline
@@ -1888,8 +1888,7 @@ def stitch_snakemake_reps(projectDir, seed=None, reps=None, trim=True):
     info_keys = ["rho","mu","m","segSites","seed","gr","ne"]
 
     ## Combine the `info.p` files
-    maxSegSites = float("inf")
-    sims_per_rep = [0,0,0]
+    minSegSites = float("inf")
     for i,new_dir in enumerate([trainDir,valiDir,testDir]):
         if not os.path.exists(new_dir):
             os.makedirs(new_dir)
@@ -1901,7 +1900,6 @@ def stitch_snakemake_reps(projectDir, seed=None, reps=None, trim=True):
             networkRep = os.path.join(projectDir,"rep{}".format(j+1),"networks")
             rep_dirs = [trainRep,valiRep,testRep]
             info_file = pickle.load(open(os.path.join(rep_dirs[i],"info.p"),"rb"))
-            sims_per_rep[i] = info_file["numReps"]
             try:
                 new_info_file["numReps"] += info_file["numReps"]
                 for key in info_keys:
@@ -1910,7 +1908,7 @@ def stitch_snakemake_reps(projectDir, seed=None, reps=None, trim=True):
             except KeyError:
                 new_info_file = info_file
         S_min = min(new_info_file["segSites"])
-        maxSegSites = min(maxSegSites, S_min)
+        minSegSites = min(minSegSites, S_min)
         pickle.dump(new_info_file, open(os.path.join(new_dir, "info.p"), "wb"))
 
     ## Add the `simPars.p` file
@@ -1919,38 +1917,82 @@ def stitch_snakemake_reps(projectDir, seed=None, reps=None, trim=True):
     simPars = pickle.load(open(os.path.join(networkRep,"simPars.p"),"rb"))
     simPars["seed"] = seed
     simPars["bn"] = os.path.basename(projectDir)
+    simPars["minSegSites"] = minSegSites
     pickle.dump(simPars, open(os.path.join(networkDir,"simPars.p"),"wb"))
 
-    ## Move and rename the simulation files
-    for i,new_dir in enumerate([trainDir,valiDir,testDir]):
-        print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(new_dir,maxSegSites))
-        new_index = 0
-        for j in range(reps):
-            trainRep = os.path.join(projectDir,"rep{}".format(j+1),"train")
-            valiRep = os.path.join(projectDir,"rep{}".format(j+1),"vali")
-            testRep = os.path.join(projectDir,"rep{}".format(j+1),"test")
-            rep_dirs = [trainRep,valiRep,testRep]
-            for k in range(sims_per_rep[i]):
-                H_orig_file = os.path.join(rep_dirs[i], "{}_haps.npy".format(k))
-                P_orig_file = os.path.join(rep_dirs[i], "{}_pos.npy".format(k))
-                H_new_file = os.path.join(new_dir, "{}_haps.npy".format(new_index))
-                P_new_file = os.path.join(new_dir, "{}_pos.npy".format(new_index))
-                H = np.load(H_orig_file)
-                P = np.load(P_orig_file)
-                H = H[:maxSegSites]
-                P = P[:maxSegSites]
-                np.save(H_new_file,H)
-                np.save(P_new_file,P)
-                os.remove(H_orig_file)
-                os.remove(P_orig_file)
-                progress_bar((k+1)/float(sims_per_rep[i]))
-                new_index += 1
+    return None
 
-    ## Remove original rep directory
+#-------------------------------------------------------------------------------------------
+
+def snakemake_stitch_sims(projectDir, rep_dir, idx, nTrain, nVali, nTest):
+    '''
+    combine the simulation files
+    created using snakemake into a directory structure
+    that looks as if it was created using the standard
+    iai-simulate pipeline
+    '''
+
+    ## Move and rename the simulation files
+    trainDir = os.path.join(projectDir,"train")
+    valiDir = os.path.join(projectDir,"vali")
+    testDir = os.path.join(projectDir,"test")
+    networkDir = os.path.join(projectDir,"networks")
+    minSegSites = pickle.load(open(os.path.join(networkDir,"simPars.p"),"rb"))["minSegSites"]
+    sims_per_rep = [nTrain, nVali, nTest]
+    for i,new_dir in enumerate([trainDir,valiDir,testDir]):
+        print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(new_dir,minSegSites))
+        new_index = (int(idx)-1) * sims_per_rep[i]
+        trainRep = os.path.join(rep_dir,"train")
+        valiRep = os.path.join(rep_dir,"vali")
+        testRep = os.path.join(rep_dir,"test")
+        rep_dirs = [trainRep,valiRep,testRep]
+        for j in range(sims_per_rep[i]):
+            H_orig_file = os.path.join(rep_dirs[i], "{}_haps.npy".format(j))
+            P_orig_file = os.path.join(rep_dirs[i], "{}_pos.npy".format(j))
+            H_new_file = os.path.join(new_dir, "{}_haps.npy".format(new_index))
+            P_new_file = os.path.join(new_dir, "{}_pos.npy".format(new_index))
+            H = np.load(H_orig_file)
+            P = np.load(P_orig_file)
+            H = H[:minSegSites]
+            P = P[:minSegSites]
+            np.save(H_new_file,H)
+            np.save(P_new_file,P)
+            new_index += 1
+
+    done_file = os.path.join(rep_dir,"done.txt")
+    with open(done_file, "w") as fIN:
+        fIN.write("done")
+
+    # for storage efficiency, remove files only after trim is complete
+    for i,new_dir in enumerate([trainDir,valiDir,testDir]):
+        trainRep = os.path.join(rep_dir,"train")
+        valiRep = os.path.join(rep_dir,"vali")
+        testRep = os.path.join(rep_dir,"test")
+        rep_dirs = [trainRep,valiRep,testRep]
+        for j in range(sims_per_rep[i]):
+            H_orig_file = os.path.join(rep_dirs[i], "{}_haps.npy".format(j))
+            P_orig_file = os.path.join(rep_dirs[i], "{}_pos.npy".format(j))
+            os.remove(H_orig_file)
+            os.remove(P_orig_file)
+
+    return None
+
+#-------------------------------------------------------------------------------------------
+
+def snakemake_remove_rep_dirs(projectDir, reps):
+    '''
+    remove all the replicate directory structure
+    '''
+
     for j in range(reps):
         rep_dir = os.path.join(projectDir,"rep{}".format(j+1))
         shutil.rmtree(rep_dir)
 
-    return None
+    done_file = os.path.join(projectDir,"done.txt")
+    with open(done_file, "w") as fIN:
+        fIN.write("done")
 
+    print("Snakefile done")
+
+    return None
 
