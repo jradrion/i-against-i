@@ -1924,7 +1924,7 @@ def snakemake_stitch_info(projectDir, seed=None, reps=None):
 
 #-------------------------------------------------------------------------------------------
 
-def snakemake_stitch_sims(projectDir, rep_dir, idx, nTrain, nVali, nTest):
+def snakemake_stitch_sims(projectDir, rep_dir, idx, nTrain, nVali, nTest, trim=False):
     '''
     combine the simulation files
     created using snakemake into a directory structure
@@ -1940,7 +1940,8 @@ def snakemake_stitch_sims(projectDir, rep_dir, idx, nTrain, nVali, nTest):
     minSegSites = pickle.load(open(os.path.join(networkDir,"simPars.p"),"rb"))["minSegSites"]
     sims_per_rep = [nTrain, nVali, nTest]
     for i,new_dir in enumerate([trainDir,valiDir,testDir]):
-        print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(new_dir,minSegSites))
+        if trim:
+            print("\nTrimming genotype and position .npy files in %s to %s SNPs"%(new_dir,minSegSites))
         new_index = (int(idx)-1) * sims_per_rep[i]
         trainRep = os.path.join(rep_dir,"train")
         valiRep = os.path.join(rep_dir,"vali")
@@ -1953,8 +1954,9 @@ def snakemake_stitch_sims(projectDir, rep_dir, idx, nTrain, nVali, nTest):
             P_new_file = os.path.join(new_dir, "{}_pos.npy".format(new_index))
             H = np.load(H_orig_file)
             P = np.load(P_orig_file)
-            H = H[:minSegSites]
-            P = P[:minSegSites]
+            if trim:
+                H = H[:minSegSites]
+                P = P[:minSegSites]
             np.save(H_new_file,H)
             np.save(P_new_file,P)
             new_index += 1

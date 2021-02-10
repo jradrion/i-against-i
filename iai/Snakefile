@@ -22,6 +22,7 @@ nTrain = config["nTrain_per_rep"]
 nVali = config["nVali_per_rep"]
 nTest = config["nTest_per_rep"]
 base_cmd = config["base_cmd"]
+trim = config["trim"]
 
 rule all:
     input:
@@ -78,7 +79,7 @@ rule stitch_sims:
         output_dir + "/rep{rep_array}/done.txt"
     run:
         rep_dir = output_dir + "/rep{}/".format(str(wildcards.rep_array)) 
-        snakemake_stitch_sims(output_dir,rep_dir,wildcards.rep_array,nTrain,nVali,nTest)
+        snakemake_stitch_sims(output_dir,rep_dir,wildcards.rep_array,nTrain,nVali,nTest,trim)
 
 rule remove_rep_dirs:
     input:
