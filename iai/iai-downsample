@@ -1,0 +1,147 @@
+#!/usr/bin/env python
+
+from iai.imports import *
+from iai.helpers import *
+from iai.simulator import *
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--to',dest='outDir',help='Directory to create via subsampling',default=None)
+    parser.add_argument('--from',dest='fromDir',help='IAI project directory to downsample from',default=None)
+    parser.add_argument('-s','--seed',dest='seed',help='Random seed',type=int,default=None)
+    parser.add_argument("-t","--nCPU",dest="nCPU",help="number of cores to use (default uses all available)",
+            type=int,default=None)
+    parser.add_argument('--minSites',dest='minSites',
+        help='If set, only sample sims with at least --minSites segregating sites',
+        type=int,default=0)
+    parser.add_argument('--paramsID',help='paramsID',type=int,default=None)
+    parser.add_argument('--nTrain',dest='nTrain',help='Number of training examples to sample',type=int,default=100000)
+    parser.add_argument('--nVali',dest='nVali',help='Number of validation examples to sample',type=int,default=1000)
+    parser.add_argument('--nTest',dest='nTest',help='Number of test examples to sample',type=int,default=1000)
+    args = parser.parse_args()
+    
+    ## Ensure all required arguments are provided
+    if not args.outDir:
+        print("Warning: No project directory found, using current working directory.")
+        projectDir = os.getcwd()
+    else:
+        projectDir = args.outDir
+    
+    ## Set seed
+    if args.seed:
+        os.environ['PYTHONHASHSEED']=str(args.seed)
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+
+    # set number of cores to use
+    if args.nCPU:
+        nProc = args.nCPU
+    else:
+        nProc=mp.cpu_count()
+    
+    ## Set up the directory structure to store the simulations data.
+    if args.paramsID:
+        ID = args.paramsID
+        testDir = os.path.join(projectDir,"test_params%s"%(ID))
+        networkDir = os.path.join(projectDir,"networks_params%s"%(ID))
+        dir_list = [projectDir,testDir,networkDir]
+    else:
+        trainDir = os.path.join(projectDir,"train")
+        valiDir = os.path.join(projectDir,"vali")
+        testDir = os.path.join(projectDir,"test")
+        networkDir = os.path.join(projectDir,"networks")
+        dir_list = [projectDir,trainDir,valiDir,testDir,networkDir]
+    train_from = os.path.join(args.fromDir,"train")
+    vali_from = os.path.join(args.fromDir,"vali")
+    test_from = os.path.join(args.fromDir,"test")
+    network_from = os.path.join(args.fromDir,"networks")
+    
+    if args.paramsID:
+        from_dirs = [test_from]
+        to_dirs = [testDir]
+        subsamples = [args.nTest]
+    else:
+        from_dirs = [train_from,vali_from,test_from]
+        to_dirs = [trainDir,valiDir,testDir]
+        subsamples = [args.nTrain,args.nVali,args.nTest]
+    
+    ## Make directories if they do not exist
+    for p in dir_list:
+        if not os.path.exists(p):
+            os.makedirs(p)
+    
+    ## Replicate "networks" directory
+    simPars = pickle.load(open(os.path.join(network_from,"simPars.p"),"rb"))
+    simPars["seed"] = args.seed
+    if os.path.basename(projectDir):
+        simPars["bn"] = os.path.basename(projectDir)
+    else:
+        simPars["bn"] = projectDir.split("/")[-2]
+    pickle.dump(simPars,open(os.path.join(networkDir,"simPars.p"),"wb"))
+    
+    ## Begin subsampling loop
+    print("\n")
+    for i, from_dir in enumerate(from_dirs):
+        ## Check that there are enough sims with minSites to sample from
+        from_info = pickle.load(open(os.path.join(from_dir,"info.p"), "rb"))
+        if args.minSites == 0:
+            minSites = np.min(from_info["segSites"])
+            if from_info["numReps"] < subsamples[i]:
+                print("Error: there are only %s examples in %s" %(
+                    from_info["numReps"],
+                    from_dirs[i])
+                    )
+                sys.exit(1)
+        else:
+            minSites = args.minSites
+            if np.count_nonzero(from_info["segSites"] >= minSites) < subsamples[i]:
+                print("Error: there are only %s examples with at least %s sites in %s" %(
+                    np.count_nonzero(from_info["segSites"] >= minSites),
+                    minSites,
+                    from_dirs[i])
+                    )
+                sys.exit(1)
+        
+        ## randomly sample indices that satisfy the above constraints 
+        segSites_mask = np.where(from_info["segSites"] >= minSites, True, False) #g2g
+        all_indices = np.arange(segSites_mask.shape[0])
+        unmasked_indices = all_indices[segSites_mask]
+        randomized_mask = np.zeros(unmasked_indices.shape[0], dtype=bool)
+        randomized_mask[:subsamples[i]] = True
+        np.random.shuffle(randomized_mask)
+        subsample_indices = unmasked_indices[randomized_mask]
+        subsample_mask = np.zeros(segSites_mask.shape[0],dtype=bool)
+        subsample_mask[subsample_indices] = True
+
+        ## Sample "info.p" file and write new file
+        info_keys = ["rho","mu","m","segSites","seed","gr","ne"]
+        new_info_file = copy.deepcopy(from_info)
+        new_info_file["numReps"] = subsamples[i]
+        new_minSites = np.min(from_info["segSites"][subsample_mask])
+        for key in info_keys:
+            new_info_file[key] = from_info[key][subsample_mask]
+        pickle.dump(new_info_file, open(os.path.join(to_dirs[i],"info.p"),"wb"))
+
+        ## Multiprocess move/trim of sims
+        mpID = range(subsample_indices.shape[0])
+        task_q = mp.JoinableQueue()
+        result_q = mp.Queue()
+        params=[subsample_indices, new_minSites, from_dir, to_dirs[i]]
+
+        # do the work
+        print("Downsample {}...".format(os.path.basename(from_dir)))
+        pids = create_procs(nProc, task_q, result_q, params, worker_downsample)
+        assign_task(mpID, task_q, nProc)
+        try:
+            task_q.join()
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt")
+            sys.exit(0)
+
+        
+    print("\n\n***FINISHED***\n")
+
+
+if __name__ == "__main__":
+	main()

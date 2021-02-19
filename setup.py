@@ -19,6 +19,7 @@ setup(name='i-against-i',
           "matplotlib>=3.1.3",
           "scikit-allel>=1.2.1"],
       scripts=[
+            "iai/iai-downsample",
             "iai/iai-simulate",
             "iai/iai-explore",
             "iai/iai-train",

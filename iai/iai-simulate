@@ -180,7 +180,10 @@ def main():
     ## Dump simulation pars for use with parametric bootstrap
     simParsFILE=os.path.join(networkDir,"simPars.p")
     with open(simParsFILE, "wb") as fOUT:
-        dg_params["bn"]=os.path.basename(projectDir)
+        if os.path.basename(projectDir):
+            dg_params["bn"] = os.path.basename(projectDir)
+        else:
+            dg_params["bn"] = projectDir.split("/")[-2]
         pickle.dump(dg_params,fOUT)
     
     # Assign pars for each simulation

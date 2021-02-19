@@ -1916,7 +1916,10 @@ def snakemake_stitch_info(projectDir, seed=None, reps=None):
         os.makedirs(networkDir)
     simPars = pickle.load(open(os.path.join(networkRep,"simPars.p"),"rb"))
     simPars["seed"] = seed
-    simPars["bn"] = os.path.basename(projectDir)
+    if os.path.basename(projectDir):
+        simPars["bn"] = os.path.basename(projectDir)
+    else:
+        simPars["bn"] = projectDir.split("/")[-2]
     simPars["minSegSites"] = minSegSites
     pickle.dump(simPars, open(os.path.join(networkDir,"simPars.p"),"wb"))
 
@@ -1998,3 +2001,20 @@ def snakemake_remove_rep_dirs(projectDir, reps):
 
     return None
 
+#-------------------------------------------------------------------------------------------
+
+
+def worker_downsample(task_q, result_q, params):
+    while True:
+        try:
+            mpID, nth_job = task_q.get()
+            subsample_indices, minSites, from_dir, to_dir = params
+            for i in mpID:
+                for extension in ["_haps.npy","_pos.npy"]:
+                    orig_file = os.path.join(from_dir, "{}{}".format(subsample_indices[i],extension))
+                    new_file = os.path.join(to_dir, "{}{}".format(i,extension))
+                    H = np.load(orig_file)
+                    H = H[:minSites]
+                    np.save(new_file,H)
+        finally:
+            task_q.task_done()
