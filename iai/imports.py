@@ -21,9 +21,9 @@ import allel
 import time
 import seaborn as sns
 import zeus
-#import pymc3 as pm
 import scipy
 from multiprocessing import Pool
+from timeit import default_timer as timer
 
 import sklearn
 from sklearn.neighbors import NearestNeighbors
@@ -43,7 +43,7 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 from tensorflow.keras import layers
 from tensorflow.keras.models import Model, model_from_json, Sequential
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ProgbarLogger
 
 from absl import app, flags
 from easydict import EasyDict

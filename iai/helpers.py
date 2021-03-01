@@ -352,6 +352,16 @@ def load_and_predictVCF(VCFGenerator,
 
 #-------------------------------------------------------------------------------------------
 
+class TimingCallback(tf.keras.callbacks.Callback):
+    def __init__(self, logs={}):
+        self.logs=[]
+    def on_epoch_begin(self, epoch, logs={}):
+        self.starttime = timer()
+    def on_epoch_end(self, epoch, logs={}):
+        self.logs.append(timer()-self.starttime)
+
+#-------------------------------------------------------------------------------------------
+
 def runModels_cleverhans_tf2(ModelFuncPointer,
             ModelName,
             NetworkDir,
@@ -419,6 +429,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     ## define model
     model = ModelFuncPointer(x,y)
+    TimingCB = TimingCallback()
     # Early stopping and saving the best weights
     callbacks_list = [
             EarlyStopping(
@@ -429,7 +440,8 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             ModelCheckpoint(
                 filepath=network[1],
                 monitor='val_loss',
-                save_best_only=True)
+                save_best_only=True),
+            TimingCB
             ]
     if initWeights:
         print("Loading model/weights from path!")
@@ -441,7 +453,6 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         model.load_weights(initWeights)
     else:
         history = model.fit(TrainGenerator,
-            steps_per_epoch=epochSteps,
             epochs=numEpochs,
             validation_data=ValidationGenerator,
             use_multiprocessing=False,
@@ -573,6 +584,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
     # Tally results
     print("results written to: ",resultsFile)
+    history.history["fit_time"] = TimingCB.logs
     history.history['loss'] = np.array(history.history['loss'])
     history.history['val_loss'] = np.array(history.history['val_loss'])
     history.history['predictions'] = np.array(y_pred)
@@ -673,6 +685,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         model_fgsm = ModelFuncPointer(x_train,y_train)
 
         ## Early stopping and saving the best weights
+        TimingCB = TimingCallback()
         callbacks_list_fgsm = [
                 EarlyStopping(
                     monitor='val_loss',
@@ -682,12 +695,12 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                 ModelCheckpoint(
                     filepath=network[1].replace(".h5","_fgsm.h5"),
                     monitor='val_loss',
-                    save_best_only=True)
+                    save_best_only=True),
+                TimingCB
                 ]
 
         # Train the network
         history_fgsm = model_fgsm.fit(x=attackGen_train,
-            steps_per_epoch=epochSteps,
             epochs=numEpochs,
             validation_data=attackGen_vali,
             callbacks=callbacks_list_fgsm,
@@ -738,6 +751,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
         ## write results
         print("results_fgsm written to: ",resultsFile.replace(".p","_fgsm.p"))
+        history_fgsm.history["fit_time"] = TimingCB.logs
         history_fgsm.history['loss'] = np.array(history_fgsm.history['loss'])
         history_fgsm.history['val_loss'] = np.array(history_fgsm.history['val_loss'])
         history_fgsm.history['predictions'] = np.array(y_pred_fgsm)
@@ -802,6 +816,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
         model_pgd = ModelFuncPointer(x_train,y_train)
 
         ## Early stopping and saving the best weights
+        TimingCB = TimingCallback()
         callbacks_list_pgd = [
                 EarlyStopping(
                     monitor='val_loss',
@@ -811,12 +826,12 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                 ModelCheckpoint(
                     filepath=network[1].replace(".h5","_pgd.h5"),
                     monitor='val_loss',
-                    save_best_only=True)
+                    save_best_only=True),
+                TimingCB
                 ]
 
         # Train the network
         history_pgd = model_pgd.fit(x=attackGen_train,
-            steps_per_epoch= epochSteps,
             epochs=numEpochs,
             validation_data=attackGen_vali,
             callbacks=callbacks_list_pgd,
@@ -867,6 +882,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
 
         ## write results
         print("results_pgd written to: ",resultsFile.replace(".p","_pgd.p"))
+        history_pgd.history["fit_time"] = TimingCB.logs
         history_pgd.history['loss'] = np.array(history_pgd.history['loss'])
         history_pgd.history['val_loss'] = np.array(history_pgd.history['val_loss'])
         history_pgd.history['predictions'] = np.array(y_pred_pgd)
