@@ -43,7 +43,7 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 from tensorflow.keras import layers
 from tensorflow.keras.models import Model, model_from_json, Sequential
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ProgbarLogger
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ProgbarLogger, TerminateOnNaN
 
 from absl import app, flags
 from easydict import EasyDict

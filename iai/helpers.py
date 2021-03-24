@@ -441,6 +441,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                 filepath=network[1],
                 monitor='val_loss',
                 save_best_only=True),
+            TerminateOnNaN(),
             TimingCB
             ]
     if initWeights:
@@ -457,7 +458,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
             validation_data=ValidationGenerator,
             use_multiprocessing=False,
             callbacks=callbacks_list,
-            verbose=2)
+            verbose=1)
 
         # Write the network
         if(network != None):
@@ -696,6 +697,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                     filepath=network[1].replace(".h5","_fgsm.h5"),
                     monitor='val_loss',
                     save_best_only=True),
+                TerminateOnNaN(),
                 TimingCB
                 ]
 
@@ -827,6 +829,7 @@ def runModels_cleverhans_tf2(ModelFuncPointer,
                     filepath=network[1].replace(".h5","_pgd.h5"),
                     monitor='val_loss',
                     save_best_only=True),
+                TerminateOnNaN(),
                 TimingCB
                 ]
 
